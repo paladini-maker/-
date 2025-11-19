@@ -8,6 +8,8 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js"></script>
   <!-- pako para descomprimir .gz en el navegador -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
+  <!-- Google Cast Sender SDK -->
+  <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
 
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <style>
@@ -50,6 +52,28 @@
     button { background:transparent; border:1px solid rgba(255,255,255,0.06); color:#fff; padding:8px 10px; border-radius:6px; cursor:pointer; }
     footer { padding:8px 12px; color:var(--muted); font-size:12px; text-align:right; }
 
+    /* Cast button styling */
+    google-cast-launcher {
+      width: 24px;
+      height: 24px;
+      --connected-color: #1db954;
+      --disconnected-color: #ffffff;
+      cursor: pointer;
+    }
+
+    /* Cast status indicator */
+    .cast-status {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .cast-active {
+      color: var(--accent);
+    }
+
     /* responsive */
     @media (max-width: 900px) {
       .layout { grid-template-columns: 1fr; }
@@ -90,6 +114,10 @@
             </div>
 
             <div id="controls">
+              <div class="cast-status" id="castStatus">
+                <span id="castStatusText">Sin conexión</span>
+                <google-cast-launcher id="castButton"></google-cast-launcher>
+              </div>
               <button id="rememberBtn">Recordar último</button>
               <button id="stopBtn">Detener</button>
             </div>
@@ -120,6 +148,10 @@ let CHANNELS = [];
 let EPG_BY_ID = {}; // { tvg-id -> [programs...] }
 let currentPlayer = null;
 let currentChannel = null;
+
+/* Google Cast variables */
+let castPlayer = null;
+let currentCastSession = null;
 
 /* Utiles */
 function safeLower(s){ return s ? s.toLowerCase() : s; }
@@ -252,6 +284,312 @@ function parseM3UText(text){
     // If a raw .mpd url
     if (!line.startsWith("#") && line.includes(".mpd")){
       const mpd = line;
+      // pick kid/key: per-channel if present, else global
+      const kid = pending.kid || globalKid || null;
+      const key = pending.key || globalKey || null;
+
+      channels.push({
+        name: pending.name || mpd,
+        logo: pending.logo || null,
+        group: pending.group || "Sin grupo",
+        tvgId: pending.tvgId || null,
+        chNumber: pending.chNumber || null,
+        kid: kid,
+        key: key,
+        mpd: mpd
+      });
+
+      // reset pending channel props
+      pending = {};
+    }
+  }
+
+  return { channels, epg_urls };
+}
+
+/* Parse XMLTV plain text into index by channel id */
+function parseXmltv(xmlText){
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(xmlText, "application/xml");
+  const channelNodes = Array.from(doc.querySelectorAll("channel"));
+  const programmeNodes = Array.from(doc.querySelectorAll("programme"));
+
+  const channels = {};
+  channelNodes.forEach(ch => {
+    const id = ch.getAttribute("id");
+    const display = ch.querySelector("display-name");
+    channels[id] = {
+      id,
+      display: display ? display.textContent : id,
+      icon: (ch.querySelector("icon") ? ch.querySelector("icon").getAttribute("src") : null),
+      programmes: []
+    };
+  });
+
+  programmeNodes.forEach(pr => {
+    const chId = pr.getAttribute("channel");
+    const start = pr.getAttribute("start");
+    const stop = pr.getAttribute("stop");
+    const titleNode = pr.querySelector("title");
+    const descNode = pr.querySelector("desc");
+    const title = titleNode ? titleNode.textContent : "—";
+    const desc = descNode ? descNode.textContent : "";
+    const startDate = parseXmltvTime(start);
+    const stopDate = parseXmltvTime(stop);
+    const obj = { title, desc, start: startDate, stop: stopDate };
+    if (!channels[chId]) channels[chId] = { id: chId, display: chId, icon: null, programmes: [] };
+    channels[chId].programmes.push(obj);
+  });
+
+  // sort programmes per channel
+  for (const id in channels){
+    channels[id].programmes.sort((a,b) => a.start - b.start);
+  }
+
+  return channels; // keyed by channel id
+}
+
+/* Load EPGs from list of URLs (xml.gz) and merge them. Use cache if present. */
+async function loadAndParseEPG(epgUrls){
+  // Try to use cached EPG first
+  const cached = localStorage.getItem(LS_EPG);
+  if (cached){
+    try {
+      EPG_BY_ID = JSON.parse(cached);
+    } catch(e) {
+      EPG_BY_ID = {};
+    }
+  } else {
+    EPG_BY_ID = {};
+  }
+
+  // Fetch each epg url, decompress, parse and merge
+  for (const url of epgUrls){
+    try {
+      const text = await fetchGzToText(url);
+      const parsed = parseXmltv(text);
+      // merge
+      for (const id in parsed){
+        if (!EPG_BY_ID[id]) EPG_BY_ID[id] = parsed[id];
+        else {
+          // merge programmes
+          EPG_BY_ID[id].programmes = EPG_BY_ID[id].programmes.concat(parsed[id].programmes);
+          // dedupe & sort
+          EPG_BY_ID[id].programmes.sort((a,b) => a.start - b.start);
+        }
+      }
+    } catch(e){
+      console.warn("EPG fetch/parse failed for", url, e);
+      // continue with others
+    }
+  }
+
+  // Save cache
+  try {
+    localStorage.setItem(LS_EPG, JSON.stringify(EPG_BY_ID));
+  } catch(e) {
+    console.warn("No se pudo cachear EPG:", e);
+  }
+}
+
+/* Render grid */
+function renderGrid(list){
+  const grid = document.getElementById("grid");
+  grid.innerHTML = "";
+  list.forEach((ch, idx) => {
+    const card = document.createElement("div");
+    card.className = "card";
+    card.dataset.index = idx;
+
+    const thumb = document.createElement("div");
+    thumb.className = "thumb";
+    const img = document.createElement("img");
+    img.src = ch.logo || placeholderLogo;
+    img.alt = ch.name;
+    thumb.appendChild(img);
+
+    const meta = document.createElement("div");
+    meta.className = "meta";
+
+    const nm = document.createElement("div");
+    nm.className = "name";
+    nm.textContent = ch.name;
+
+    const sub = document.createElement("div");
+    sub.className = "sub";
+    sub.textContent = `${ch.group} ${ch.tvgId ? " • " + ch.tvgId : ""}`;
+
+    meta.appendChild(nm);
+    meta.appendChild(sub);
+
+    card.appendChild(thumb);
+    card.appendChild(meta);
+
+    card.addEventListener("click", () => {
+      loadChannel(ch);
+      localStorage.setItem(LS_LAST, JSON.stringify(ch));
+    });
+
+    grid.appendChild(card);
+  });
+}
+
+/* Filter helper */
+function applyFilter(q){
+  q = (q||"").toLowerCase();
+  const filtered = CHANNELS.filter(c => {
+    return (c.name && c.name.toLowerCase().includes(q))
+      || (c.group && c.group.toLowerCase().includes(q))
+      || (c.tvgId && c.tvgId.toLowerCase().includes(q))
+      || (c.chNumber && String(c.chNumber).includes(q));
+  });
+  renderGrid(filtered);
+}
+
+/* Shaka player loader */
+async function setupShaka(){
+  // shaka polyfills
+  shaka.polyfill.installAll();
+  if (!shaka.Player.isBrowserSupported()) {
+    console.error("Navegador no soportado por Shaka");
+  }
+}
+
+/* Google Cast API initialization */
+function initializeCastApi() {
+  try {
+    cast.framework.CastContext.getInstance().setOptions({
+      receiverApplicationId: chrome.cast.media.DEFAULT_MEDIA_RECEIVER_APP_ID,
+      // For production, use your custom Cast Receiver App ID:
+      // receiverApplicationId: 'YOUR_CUSTOM_APP_ID',
+      autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
+    });
+
+    // Add event listeners for cast state changes
+    cast.framework.CastContext.getInstance().addEventListener(
+      cast.framework.CastContextEventType.SESSION_STATE_CHANGED,
+      (event) => {
+        updateCastStatus(event.sessionState);
+      }
+    );
+
+    console.log("Google Cast API initialized successfully");
+  } catch (error) {
+    console.error("Error initializing Google Cast API:", error);
+  }
+}
+
+/* Update cast connection status UI */
+function updateCastStatus(sessionState) {
+  const castStatusText = document.getElementById("castStatusText");
+  const castStatus = document.getElementById("castStatus");
+  
+  switch (sessionState) {
+    case cast.framework.SessionState.SESSION_STARTED:
+    case cast.framework.SessionState.SESSION_RESUMED:
+      castStatusText.textContent = "Transmitiendo";
+      castStatus.classList.add("cast-active");
+      break;
+    case cast.framework.SessionState.SESSION_ENDED:
+      castStatusText.textContent = "Sin conexión";
+      castStatus.classList.remove("cast-active");
+      // When casting ends, reload current channel locally if any
+      if (currentChannel) {
+        loadChannelLocal(currentChannel);
+      }
+      break;
+    default:
+      castStatusText.textContent = "Sin conexión";
+      castStatus.classList.remove("cast-active");
+  }
+}
+
+/* Load channel to Cast device */
+async function loadChannelToCast(ch) {
+  try {
+    const castSession = cast.framework.CastContext.getInstance().getCurrentSession();
+    
+    if (!castSession) {
+      console.error("No active Cast session");
+      return false;
+    }
+
+    const mediaInfo = new chrome.cast.media.MediaInfo(ch.mpd, 'application/dash+xml');
+    mediaInfo.metadata = new chrome.cast.media.GenericMediaMetadata();
+    mediaInfo.metadata.title = ch.name;
+    mediaInfo.metadata.subtitle = ch.group;
+    
+    if (ch.logo) {
+      mediaInfo.metadata.images = [new chrome.cast.Image(ch.logo)];
+    }
+
+    const request = new chrome.cast.media.LoadRequest(mediaInfo);
+    
+    // Configure DRM for Cast if needed
+    if (ch.kid && ch.key) {
+      const drmInfo = {
+        keySystem: 'org.w3.clearkey',
+        initData: { kids: [ch.kid] },
+        licenseUrl: `data:application/json;base64,${btoa(JSON.stringify({ keys: [{ kty: 'oct', kid: ch.kid, k: ch.key }] }))}`
+      };
+      mediaInfo.drm = drmInfo;
+    }
+
+    await castSession.loadMedia(request);
+    console.log("Transmitiendo a Chromecast:", ch.name);
+    updateNowNextUI(ch);
+    return true;
+  } catch (error) {
+    console.error("Error transmitting to Chromecast:", error);
+    return false;
+  }
+}
+
+/* Load channel locally with Shaka Player */
+async function loadChannelLocal(ch) {
+  currentChannel = ch;
+  
+  // Destroy existing player to avoid duplicate instances
+  if (currentPlayer) {
+    try { 
+      await currentPlayer.unload();
+      currentPlayer.destroy(); 
+    } catch(e) {
+      console.warn("Error destroying previous player:", e);
+    }
+    currentPlayer = null;
+  }
+
+  const video = document.getElementById("video");
+  const player = new shaka.Player(video);
+  currentPlayer = player;
+
+  player.addEventListener('error', e => {
+    console.error("Shaka error:", e.detail);
+  });
+
+  // Configure DRM ClearKey
+  if (ch.kid && ch.key) {
+    const cfg = {
+      drm: {
+        clearKeys: {
+          [ch.kid]: ch.key
+        }
+      }
+    };
+    player.configure(cfg);
+  } else {
+    // No clearkey provided; let Shaka try with server licenses if mpd includes DRM
+    player.configure({ drm: {} });
+  }
+
+  try {
+    await player.load(ch.mpd);
+    console.log("Reproduciendo localmente:", ch.name);
+    updateNowNextUI(ch);
+  } catch(e) {
+    console.error("Error cargando MPD:", e);
+    alert("Error al cargar el MPD.  = line;
       // pick kid/key: per-channel if present, else global
       const kid = pending.kid || globalKid || null;
       const key = pending.key || globalKey || null;
