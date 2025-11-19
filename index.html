@@ -2,196 +2,326 @@
 <html lang="es">
 <head>
   <meta charset="utf-8" />
-  <title>IPTV Grid + Shaka + EPG (Ahora / Siguiente)</title>
-
-  <!-- Shaka Player -->
+  <title>IPTV Player (Soporte KODIPROP + DRM)</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  
   <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js"></script>
-  <!-- pako para descomprimir .gz en el navegador -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
-  <!-- Google Cast Sender SDK -->
+  
   <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
 
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <style>
-    :root {
-      --bg: #060606;
-      --panel: #0f1113;
-      --muted: #9aa0a6;
-      --card: #121416;
-      --accent: #1db954;
-    }
-    html,body { height: 100%; margin: 0; background: var(--bg); color: #fff; font-family: Inter, system-ui, sans-serif; }
-    header { padding: 10px 14px; display:flex; align-items:center; gap:12px; background: linear-gradient(90deg,#071217, #0b1416); box-shadow:0 1px 0 rgba(255,255,255,0.02); }
-    header h1 { margin:0; font-size:16px; font-weight:600; }
-    #app { display: grid; grid-template-rows: auto 1fr; height: calc(100% - 56px); }
-    .layout { display: grid; grid-template-columns: 340px 1fr; gap: 12px; padding: 12px; height: 100%; box-sizing: border-box; }
-    /* sidebar = grid of channels */
-    #sidebar { background: var(--panel); border-radius: 8px; padding: 10px; overflow:auto; }
-    #search { display:flex; gap:8px; margin-bottom:8px; }
-    #search input { flex:1; padding:8px; border-radius:6px; border:0; background:#0b0d0f; color:#fff; outline: none; }
-    #grid { display:grid; grid-template-columns: 1fr; gap:8px; }
-    .card { display:flex; gap:8px; align-items:center; background: var(--card); padding:8px; border-radius:6px; cursor:pointer; transition: transform .08s ease, background .08s; }
-    .card:hover { transform: translateY(-3px); background:#162026; }
-    .thumb { width:64px; height:40px; background:#000; display:flex; align-items:center; justify-content:center; }
-    .thumb img { max-width:100%; max-height:100%; object-fit:contain; }
-    .meta { display:flex; flex-direction:column; gap:3px; overflow:hidden; }
-    .name { font-weight:600; font-size:13px; white-space:nowrap; text-overflow:ellipsis; overflow:hidden; }
-    .sub { color:var(--muted); font-size:12px; white-space:nowrap; text-overflow:ellipsis; overflow:hidden; }
+    :root { --bg: #09090b; --panel: #18181b; --text: #e4e4e7; --accent: #22c55e; }
+    body { margin: 0; background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; height: 100vh; display: flex; flex-direction: column; }
+    
+    header { padding: 1rem; background: var(--panel); display: flex; align-items: center; border-bottom: 1px solid #27272a; }
+    h1 { margin: 0; font-size: 1.2rem; font-weight: 700; }
+    
+    .layout { display: grid; grid-template-columns: 350px 1fr; flex: 1; overflow: hidden; }
+    
+    /* Sidebar */
+    #sidebar { background: var(--panel); display: flex; flex-direction: column; border-right: 1px solid #27272a; }
+    .search-box { padding: 10px; border-bottom: 1px solid #27272a; display: flex; gap: 5px; }
+    input { flex: 1; background: #27272a; border: none; padding: 8px; border-radius: 4px; color: white; }
+    #grid { flex: 1; overflow-y: auto; padding: 10px; display: grid; grid-template-columns: 1fr; gap: 5px; align-content: start; }
+    
+    .card { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 6px; cursor: pointer; transition: background 0.2s; }
+    .card:hover { background: #27272a; }
+    .card.active { background: #22c55e20; border: 1px solid #22c55e40; }
+    .logo { width: 50px; height: 30px; object-fit: contain; background: #000; border-radius: 4px; }
+    .info { overflow: hidden; }
+    .ch-name { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ch-group { font-size: 12px; color: #a1a1aa; }
 
-    /* main area */
-    #main {
-      display:flex; flex-direction:column; gap:10px;
-    }
-    #playerWrap { background: #000; border-radius: 8px; overflow: hidden; display:flex; flex-direction:column; }
-    video { width:100%; height: 56vh; background:#000; outline: none; }
-    #infoBar { display:flex; gap:12px; align-items:center; padding:10px; background:linear-gradient(180deg, rgba(0,0,0,0.04), transparent); }
-    #nowCard { background:#0c1112; padding:10px; border-radius:8px; min-width:200px; }
-    #nowTitle { font-weight:700; font-size:14px; }
-    #nowTime { color:var(--muted); font-size:12px; margin-top:4px; }
-    #controls { margin-left:auto; display:flex; gap:8px; align-items:center; }
-    button { background:transparent; border:1px solid rgba(255,255,255,0.06); color:#fff; padding:8px 10px; border-radius:6px; cursor:pointer; }
-    footer { padding:8px 12px; color:var(--muted); font-size:12px; text-align:right; }
+    /* Player */
+    #main { display: flex; flex-direction: column; background: #000; position: relative; }
+    #videoContainer { flex: 1; display: flex; align-items: center; justify-content: center; background: #000; }
+    video { width: 100%; height: 100%; max-height: 100vh; outline: none; }
+    
+    .controls { padding: 15px; background: var(--panel); display: flex; align-items: center; gap: 15px; }
+    .playing-info { flex: 1; }
+    .status-pill { display: inline-block; padding: 2px 6px; font-size: 10px; border-radius: 4px; background: #333; margin-bottom: 4px; }
+    .drm-badge { background: #eab308; color: #000; font-weight: bold; }
 
-    /* Cast button styling */
-    google-cast-launcher {
-      width: 24px;
-      height: 24px;
-      --connected-color: #1db954;
-      --disconnected-color: #ffffff;
-      cursor: pointer;
-    }
+    /* Cast Button Styling */
+    google-cast-launcher { width: 30px; height: 30px; cursor: pointer; display: none; } 
+    /* Se mostrará via JS cuando esté disponible */
 
-    /* Cast status indicator */
-    .cast-status {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 12px;
-      color: var(--muted);
-    }
-
-    .cast-active {
-      color: var(--accent);
-    }
-
-    /* responsive */
-    @media (max-width: 900px) {
-      .layout { grid-template-columns: 1fr; }
-      #grid { display:grid; grid-template-columns: repeat(auto-fill,minmax(140px,1fr)); }
-      video { height: 42vh; }
+    @media (max-width: 768px) {
+      .layout { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+      #sidebar { display: none; } /* Ocultar lista en móvil mientras reproduce, lógica simple */
+      #sidebar.show { display: flex; position: fixed; inset: 0; z-index: 10; }
     }
   </style>
 </head>
 <body>
-  <header>
-    <h1>IPTV — Shaka + EPG (Ahora / Siguiente)</h1>
-    <div style="margin-left:auto; color:var(--muted); font-size:13px;">Listas M3U + XMLTV .gz</div>
-  </header>
 
-  <div id="app">
-    <div class="layout">
-      <aside id="sidebar">
-        <div id="search">
-          <input id="filter" placeholder="Buscar canal, grupo, número..." />
-          <button id="refreshBtn">Refrescar</button>
-        </div>
-        <div id="grid" role="list"></div>
-      </aside>
+<header>
+  <h1>IPTV Pro Player</h1>
+  <div style="flex:1"></div>
+  <button onclick="toggleList()" style="padding:5px 10px; background:#333; color:white; border:none; border-radius:4px;">Lista</button>
+</header>
 
-      <main id="main">
-        <div id="playerWrap">
-          <video id="video" controls playsinline></video>
-          <div id="infoBar">
-            <div id="nowCard">
-              <div id="nowTitle">Seleccioná un canal</div>
-              <div id="nowTime"></div>
-            </div>
-
-            <div id="epgNext" style="min-width:240px; background:#0c1112; padding:10px; border-radius:8px;">
-              <div style="font-size:13px; color:var(--muted);">Siguiente</div>
-              <div id="nextTitle" style="font-weight:600; margin-top:6px;">—</div>
-              <div id="nextTime" style="color:var(--muted); font-size:12px; margin-top:6px;">—</div>
-            </div>
-
-            <div id="controls">
-              <div class="cast-status" id="castStatus">
-                <span id="castStatusText">Sin conexión</span>
-                <google-cast-launcher id="castButton"></google-cast-launcher>
-              </div>
-              <button id="rememberBtn">Recordar último</button>
-              <button id="stopBtn">Detener</button>
-            </div>
-          </div>
-        </div>
-        <footer>Cache local para M3U y EPG; última actualización en <span id="lastUpdate">—</span></footer>
-      </main>
+<div class="layout">
+  <aside id="sidebar">
+    <div class="search-box">
+      <input id="searchInput" placeholder="Buscar canal..." onkeyup="filterGrid()">
+      <button onclick="loadM3U()" title="Recargar">↻</button>
     </div>
-  </div>
+    <div id="grid"></div>
+  </aside>
+
+  <main id="main">
+    <div id="videoContainer">
+      <video id="video" controls autoplay playsinline></video>
+    </div>
+    <div class="controls">
+      <div class="playing-info">
+        <div id="statusBadges"></div>
+        <div id="nowPlaying" style="font-weight:bold">Selecciona un canal</div>
+        <div id="nowEpg" style="font-size:12px; color:#aaa">...</div>
+      </div>
+      
+      <div id="castContainer">
+        <google-cast-launcher id="castBtn"></google-cast-launcher>
+      </div>
+    </div>
+  </main>
+</div>
 
 <script>
-/*
-  Configura esto:
-  - M3U_URL: URL de tu lista M3U pública
-  - Opcional: placeholderLogo
-*/
-const M3U_URL = "https://raw.githubusercontent.com/paladini-maker/-/refs/heads/main/002.m3u";
-const placeholderLogo = "https://via.placeholder.com/150/000000/FFFFFF?text=Sin+Logo";
+/** * PEGA TU LISTA M3U EN UN GITHUB O PASTEBIN RAW Y PON LA URL AQUÍ 
+ * O usa una variable de texto local si prefieres.
+ */
+const M3U_URL = "https://raw.githubusercontent.com/TU_USUARIO/TU_REPO/main/lista.m3u"; 
 
-/* LocalStorage keys */
-const LS_M3U = "iptv_m3u_text";
-const LS_M3U_PARSED = "iptv_m3u_parsed";
-const LS_EPG = "iptv_epg_parsed";
-const LS_LAST = "iptv_last_channel";
-
-/* Estado runtime */
+// Variables de estado
 let CHANNELS = [];
-let EPG_BY_ID = {}; // { tvg-id -> [programs...] }
-let currentPlayer = null;
+let player = null;
 let currentChannel = null;
 
-/* Google Cast variables */
-let castPlayer = null;
-let currentCastSession = null;
+// --- 1. PARSEO AVANZADO (Soporta tu formato) ---
+function parseM3U(text) {
+  const lines = text.split(/\r?\n/);
+  const channels = [];
+  
+  let current = {}; // Datos temporales del canal
+  let globalKid = null;
+  let globalKey = null;
 
-/* Utiles */
-function safeLower(s){ return s ? s.toLowerCase() : s; }
-function formatTimeRange(start, stop){
-  const d1 = new Date(start); const d2 = new Date(stop);
-  function hhmm(d){ return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}); }
-  return `${hhmm(d1)} - ${hhmm(d2)}`;
-}
+  for (let line of lines) {
+    line = line.trim();
+    if (!line) continue;
 
-/* Parse XMLTV date strings (e.g. 20251119030000 +0000 or 20251119030000) */
-function parseXmltvTime(s){
-  // Split timezone if present
-  const m = s.match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(?:\s?([+-]\d{4}))?/);
-  if (!m) return new Date(s);
-  const [ , Y, Mo, D, hh, mm, ss, tz ] = m;
-  // Build ISO-ish string
-  let iso = `${Y}-${Mo}-${D}T${hh}:${mm}:${ss}`;
-  if (tz){
-    // tz like +0200 -> convert to +02:00
-    const tzISO = tz.slice(0,3) + ":" + tz.slice(3);
-    iso += tzISO;
-  } else {
-    iso += "Z"; // assume UTC if no tz provided
+    // Claves Globales (a veces aparecen al inicio del archivo)
+    if (line.startsWith("#KODIPROP:inputstream.adaptive.license_key=")) {
+      const val = line.split("=")[1];
+      // Formato KID:KEY
+      if (val.includes(":") && !val.includes("http")) { 
+        const parts = val.split(":");
+        // Si estamos parseando un canal específico, es local, si no, es global?
+        // En tu lista, las claves están justo antes del EXTINF, así que las guardamos en 'current'
+        current.kid = parts[0];
+        current.key = parts[1];
+      }
+      continue;
+    }
+
+    // Metadata del canal
+    if (line.startsWith("#EXTINF:")) {
+      const info = line.substring(8);
+      const parts = info.split(",");
+      current.name = parts[parts.length - 1].trim();
+      
+      // Extraer logo
+      const logoMatch = line.match(/tvg-logo="([^"]+)"/);
+      if (logoMatch) current.logo = logoMatch[1];
+      
+      // Extraer grupo
+      const groupMatch = line.match(/group-title="([^"]+)"/);
+      current.group = groupMatch ? groupMatch[1] : "General";
+      
+      // Extraer ID para EPG
+      const idMatch = line.match(/tvg-id="([^"]+)"/);
+      if (idMatch) current.id = idMatch[1];
+      
+      continue;
+    }
+
+    // URL del stream (Línea final del bloque)
+    if (!line.startsWith("#")) {
+      current.url = line;
+      
+      // Determinar tipo de DRM
+      if (current.kid && current.key) {
+        current.drm = true;
+      }
+      
+      channels.push({...current});
+      current = {}; // Reset para el siguiente canal
+    }
   }
-  return new Date(iso);
+  return channels;
 }
 
-/* Fetch text or return cached if identical */
-async function fetchTextMaybeCached(url, cacheKey){
+// --- 2. RENDERIZADO VISUAL ---
+function renderGrid(list) {
+  const grid = document.getElementById("grid");
+  grid.innerHTML = "";
+  
+  list.forEach((ch, index) => {
+    const div = document.createElement("div");
+    div.className = "card";
+    div.onclick = () => playChannel(ch, div);
+    
+    div.innerHTML = `
+      <div class="logo">
+        <img src="${ch.logo || ''}" style="width:100%;height:100%;object-fit:contain;" onerror="this.style.display='none'">
+      </div>
+      <div class="info">
+        <div class="ch-name">${ch.name}</div>
+        <div class="ch-group">${ch.group} ${ch.drm ? '🔒' : ''}</div>
+      </div>
+    `;
+    grid.appendChild(div);
+  });
+}
+
+function filterGrid() {
+  const q = document.getElementById("searchInput").value.toLowerCase();
+  const filtered = CHANNELS.filter(c => c.name.toLowerCase().includes(q) || c.group.toLowerCase().includes(q));
+  renderGrid(filtered);
+}
+
+// --- 3. REPRODUCTOR (SHAKA + DRM) ---
+async function initApp() {
+  shaka.polyfill.installAll();
+  if (shaka.Player.isBrowserSupported()) {
+    const video = document.getElementById('video');
+    player = new shaka.Player(video);
+    player.addEventListener('error', onErrorEvent);
+    
+    // Intentar cargar lista (simulada o fetch real)
+    // Para probar YA MISMO, parseamos el texto si no hay URL real:
+    try {
+       const response = await fetch(M3U_URL); // Cambia esto si usas archivo local
+       if(response.ok) {
+          const text = await response.text();
+          CHANNELS = parseM3U(text);
+          renderGrid(CHANNELS);
+       }
+    } catch (e) {
+       console.log("Esperando carga manual o URL válida...");
+    }
+  } else {
+    console.error('Navegador no compatible');
+  }
+}
+
+async function playChannel(ch, cardEl) {
+  // UI Update
+  document.querySelectorAll('.card').forEach(c => c.classList.remove('active'));
+  if(cardEl) cardEl.classList.add('active');
+  
+  document.getElementById("nowPlaying").textContent = ch.name;
+  const badges = document.getElementById("statusBadges");
+  badges.innerHTML = ch.drm ? '<span class="status-pill drm-badge">DRM KEY</span>' : '';
+  
+  currentChannel = ch;
+
+  // Configurar Player
+  const config = { drm: {} };
+
+  // Si el canal tiene llaves ClearKey
+  if (ch.kid && ch.key) {
+    config.drm.clearKeys = {
+      [ch.kid]: ch.key
+    };
+  }
+
+  player.configure(config);
+
   try {
-    const resp = await fetch(url, { method: "GET", cache: "no-cache" });
-    if (!resp.ok) throw new Error("HTTP " + resp.status);
-    const text = await resp.text();
-    localStorage.setItem(cacheKey, text);
-    return text;
-  } catch(e){
-    // fallback to cache if exists
-    const cached = localStorage.getItem(cacheKey);
-    if (cached) return cached;
-    throw e;
+    await player.load(ch.url);
+    console.log('Reproduciendo:', ch.name);
+  } catch (e) {
+    console.error('Error al cargar:', e);
+    onErrorEvent({detail: e});
+  }
+}
+
+function onErrorEvent(event) {
+  console.error('Error code', event.detail.code, 'object', event.detail);
+}
+
+// --- 4. GOOGLE CAST INTEGRATION ---
+window['__onGCastApiAvailable'] = function(isAvailable) {
+  if (isAvailable) {
+    initializeCastApi();
+  }
+};
+
+function initializeCastApi() {
+  cast.framework.CastContext.getInstance().setOptions({
+    receiverApplicationId: chrome.cast.media.DEFAULT_MEDIA_RECEIVER_APP_ID,
+    autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
+  });
+  
+  // Mostrar botón
+  const btn = document.getElementById("castBtn");
+  if(btn) btn.style.display = "block";
+
+  // Listener de sesión
+  cast.framework.CastContext.getInstance().addEventListener(
+    cast.framework.CastContextEventType.SESSION_STATE_CHANGED,
+    (event) => {
+      switch (event.sessionState) {
+        case cast.framework.SessionState.SESSION_STARTED:
+          if (currentChannel) loadRemoteMedia(currentChannel);
+          break;
+      }
+    }
+  );
+}
+
+function loadRemoteMedia(ch) {
+  const castSession = cast.framework.CastContext.getInstance().getCurrentSession();
+  const mediaInfo = new chrome.cast.media.MediaInfo(ch.url, 'application/dash+xml'); // Asumimos DASH por defecto
+  
+  // Metadata
+  mediaInfo.metadata = new chrome.cast.media.GenericMediaMetadata();
+  mediaInfo.metadata.title = ch.name;
+  if(ch.logo) mediaInfo.metadata.images = [new chrome.cast.Image(ch.logo)];
+
+  // IMPORTANTE: Enviar las llaves DRM al Chromecast
+  // Nota: El receptor por defecto de Chrome puede NO soportar ClearKey vía customData
+  // Se requeriría un Receiver App personalizado para DRM robusto.
+  if (ch.kid && ch.key) {
+     mediaInfo.customData = {
+        "license": {
+           "keys": [{ "kty": "oct", "kid": ch.kid, "k": ch.key }]
+        }
+     };
+  }
+
+  const request = new chrome.cast.media.LoadRequest(mediaInfo);
+  castSession.loadMedia(request).then(
+    function() { console.log('Casting success'); },
+    function(errorCode) { console.log('Casting error code: ' + errorCode); }
+  );
+}
+
+// Utilidad para móvil
+function toggleList() {
+  document.getElementById("sidebar").classList.toggle("show");
+}
+
+// Iniciar
+document.addEventListener('DOMContentLoaded', initApp);
+
+</script>
+</body>
+  </html>    throw e;
   }
 }
 
