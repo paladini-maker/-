@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>IPTV Grid + Shaka + EPG (Ahora / Siguiente)</title>
+
+  <!-- Shaka Player -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js"></script>
+  <!-- pako para descomprimir .gz en el navegador -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
+
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    :root {
+      --bg: #060606;
+      --panel: #0f1113;
+      --muted: #9aa0a6;
+      --card: #121416;
+      --accent: #1db954;
+    }
+    html,body { height: 100%; margin: 0; background: var(--bg); color: #fff; font-family: Inter, system-ui, sans-serif; }
+    header { padding: 10px 14px; display:flex; align-items:center; gap:12px; background: linear-gradient(90deg,#071217, #0b1416); box-shadow:0 1px 0 rgba(255,255,255,0.02); }
+    header h1 { margin:0; font-size:16px; font-weight:600; }
+    #app { display: grid; grid-template-rows: auto 1fr; height: calc(100% - 56px); }
+    .layout { display: grid; grid-template-columns: 340px 1fr; gap: 12px; padding: 12px; height: 100%; box-sizing: border-box; }
+    /* sidebar = grid of channels */
+    #sidebar { background: var(--panel); border-radius: 8px; padding: 10px; overflow:auto; }
+    #search { display:flex; gap:8px; margin-bottom:8px; }
+    #search input { flex:1; padding:8px; border-radius:6px; border:0; background:#0b0d0f; color:#fff; outline: none; }
+    #grid { display:grid; grid-template-columns: 1fr; gap:8px; }
+    .card { display:flex; gap:8px; align-items:center; background: var(--card); padding:8px; border-radius:6px; cursor:pointer; transition: transform .08s ease, background .08s; }
+    .card:hover { transform: translateY(-3px); background:#162026; }
+    .thumb { width:64px; height:40px; background:#000; display:flex; align-items:center; justify-content:center; }
+    .thumb img { max-width:100%; max-height:100%; object-fit:contain; }
+    .meta { display:flex; flex-direction:column; gap:3px; overflow:hidden; }
+    .name { font-weight:600; font-size:13px; white-space:nowrap; text-overflow:ellipsis; overflow:hidden; }
+    .sub { color:var(--muted); font-size:12px; white-space:nowrap; text-overflow:ellipsis; overflow:hidden; }
+
+    /* main area */
+    #main {
+      display:flex; flex-direction:column; gap:10px;
+    }
+    #playerWrap { background: #000; border-radius: 8px; overflow: hidden; display:flex; flex-direction:column; }
+    video { width:100%; height: 56vh; background:#000; outline: none; }
+    #infoBar { display:flex; gap:12px; align-items:center; padding:10px; background:linear-gradient(180deg, rgba(0,0,0,0.04), transparent); }
+    #nowCard { background:#0c1112; padding:10px; border-radius:8px; min-width:200px; }
+    #nowTitle { font-weight:700; font-size:14px; }
+    #nowTime { color:var(--muted); font-size:12px; margin-top:4px; }
+    #controls { margin-left:auto; display:flex; gap:8px; align-items:center; }
+    button { background:transparent; border:1px solid rgba(255,255,255,0.06); color:#fff; padding:8px 10px; border-radius:6px; cursor:pointer; }
+    footer { padding:8px 12px; color:var(--muted); font-size:12px; text-align:right; }
+
+    /* responsive */
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: 1fr; }
+      #grid { display:grid; grid-template-columns: repeat(auto-fill,minmax(140px,1fr)); }
+      video { height: 42vh; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>IPTV — Shaka + EPG (Ahora / Siguiente)</h1>
+    <div style="margin-left:auto; color:var(--muted); font-size:13px;">Listas M3U + XMLTV .gz</div>
+  </header>
+
+  <div id="app">
+    <div class="layout">
+      <aside id="sidebar">
+        <div id="search">
+          <input id="filter" placeholder="Buscar canal, grupo, número..." />
+          <button id="refreshBtn">Refrescar</button>
+        </div>
+        <div id="grid" role="list"></div>
+      </aside>
+
+      <main id="main">
+        <div id="playerWrap">
+          <video id="video" controls playsinline></video>
+          <div id="infoBar">
+            <div id="nowCard">
+              <div id="nowTitle">Seleccioná un canal</div>
+              <div id="nowTime"></div>
+            </div>
+
+            <div id="epgNext" style="min-width:240px; background:#0c1112; padding:10px; border-radius:8px;">
+              <div style="font-size:13px; color:var(--muted);">Siguiente</div>
+              <div id="nextTitle" style="font-weight:600; margin-top:6px;">—</div>
+              <div id="nextTime" style="color:var(--muted); font-size:12px; margin-top:6px;">—</div>
+            </div>
+
+            <div id="controls">
+              <button id="rememberBtn">Recordar último</button>
+              <button id="stopBtn">Detener</button>
+            </div>
+          </div>
+        </div>
+        <footer>Cache local para M3U y EPG; última actualización en <span id="lastUpdate">—</span></footer>
+      </main>
+    </div>
+  </div>
+
+<script>
+/*
+  Configura esto:
+  - M3U_URL: URL de tu lista M3U pública
+  - Opcional: placeholderLogo
+*/
+const M3U_URL = "https://TU_SERVIDOR/lista.m3u";
+const placeholderLogo = "https://via.placeholder.com/150/000000/FFFFFF?text=Sin+Logo";
+
+/* LocalStorage keys */
+const LS_M3U = "iptv_m3u_text";
+const LS_M3U_PARSED = "iptv_m3u_parsed";
+const LS_EPG = "iptv_epg_parsed";
+const LS_LAST = "iptv_last_channel";
+
+/* Estado runtime */
+let CHANNELS = [];
+let EPG_BY_ID = {}; // { tvg-id -> [programs...] }
+let currentPlayer = null;
+let currentChannel = null;
+
+/* Utiles */
+function safeLower(s){ return s ? s.toLowerCase() : s; }
+function formatTimeRange(start, stop){
+  const d1 = new Date(start); const d2 = new Date(stop);
+  function hhmm(d){ return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}); }
+  return `${hhmm(d1)} - ${hhmm(d2)}`;
+}
+
+/* Parse XMLTV date strings (e.g. 20251119030000 +0000 or 20251119030000) */
+function parseXmltvTime(s){
+  // Split timezone if present
+  const m = s.match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(?:\s?([+-]\d{4}))?/);
+  if (!m) return new Date(s);
+  const [ , Y, Mo, D, hh, mm, ss, tz ] = m;
+  // Build ISO-ish string
+  let iso = `${Y}-${Mo}-${D}T${hh}:${mm}:${ss}`;
+  if (tz){
+    // tz like +0200 -> convert to +02:00
+    const tzISO = tz.slice(0,3) + ":" + tz.slice(3);
+    iso += tzISO;
+  } else {
+    iso += "Z"; // assume UTC if no tz provided
+  }
+  return new Date(iso);
+}
+
+/* Fetch text or return cached if identical */
+async function fetchTextMaybeCached(url, cacheKey){
+  try {
+    const resp = await fetch(url, { method: "GET", cache: "no-cache" });
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    const text = await resp.text();
+    localStorage.setItem(cacheKey, text);
+    return text;
+  } catch(e){
+    // fallback to cache if exists
+    const cached = localStorage.getItem(cacheKey);
+    if (cached) return cached;
+    throw e;
+  }
+}
+
+/* Fetch and decompress .gz (arrayBuffer -> pako.inflate -> text) */
+async function fetchGzToText(url){
+  const resp = await fetch(url, { method: "GET", cache: "no-cache" });
+  if (!resp.ok) throw new Error("EPG HTTP " + resp.status);
+  const buffer = await resp.arrayBuffer();
+  const u8 = new Uint8Array(buffer);
+  const infl = pako.ungzip(u8);
+  const decoder = new TextDecoder("utf-8");
+  return decoder.decode(infl);
+}
+
+/* Parse M3U (soporta header EXTM3U with url-tvg=... and #KODIPROP license lines) */
+async function parseM3UFromURL(url){
+  const res = await fetch(url, { cache: "no-cache" });
+  if (!res.ok) throw new Error("M3U HTTP " + res.status);
+  const text = await res.text();
+  localStorage.setItem(LS_M3U, text);
+  return parseM3UText(text);
+}
+
+function parseM3UText(text){
+  const lines = text.split(/\r?\n/);
+  const channels = [];
+  let epg_urls = [];
+  let pending = {}; // temp store: name,logo,group,tvg-id,ch-number,kid,key
+
+  let globalKid = null, globalKey = null;
+
+  for (let raw of lines){
+    const line = raw.trim();
+    if (!line) continue;
+
+    // Header with url-tvg (can be multiple separated by commas)
+    if (line.startsWith("#EXTM3U")){
+      const m = line.match(/url-tvg="([^"]+)"/);
+      if (m && m[1]) {
+        epg_urls = m[1].split(",").map(s => s.trim()).filter(Boolean);
+      }
+      continue;
+    }
+
+    // KODIPROP license type (ignored) and license_key
+    if (line.startsWith("#KODIPROP:inputstream.adaptive.license_key=")){
+      const val = line.split("=")[1] || "";
+      if (val.includes(":")){
+        [globalKid, globalKey] = val.split(":").map(s => s.trim().toLowerCase());
+      }
+      continue;
+    }
+
+    // EXTINF entries
+    if (line.startsWith("#EXTINF")){
+      // collect attributes
+      const logoMatch = line.match(/tvg-logo="([^"]+)"/);
+      const groupMatch = line.match(/group-title="([^"]+)"/);
+      const idMatch = line.match(/tvg-id="([^"]+)"/);
+      const name = line.split(",").slice(1).join(",").trim();
+
+      pending.name = name || "Sin nombre";
+      pending.logo = logoMatch ? logoMatch[1] : null;
+      pending.group = groupMatch ? groupMatch[1] : "Sin grupo";
+      pending.tvgId = idMatch ? idMatch[1] : null;
+      continue;
+    }
+
+    // KODIPROP lines that appear near channel (they may be global or per-channel)
+    if (line.startsWith("#KODIPROP:inputstream.adaptive.license_key=")){
+      const val = line.split("=")[1] || "";
+      if (val.includes(":")){
+        const [kKid, kKey] = val.split(":").map(s => s.trim().toLowerCase());
+        pending.kid = kKid;
+        pending.key = kKey;
+      }
+      continue;
+    }
+
+    // Some lists use EXTVLCOPT:dash-kid / dash-key (handle both)
+    if (line.startsWith("#EXTVLCOPT:dash-kid=")){
+      pending.kid = line.split("=")[1].trim().toLowerCase();
+      continue;
+    }
+    if (line.startsWith("#EXTVLCOPT:dash-key=")){
+      pending.key = line.split("=")[1].trim().toLowerCase();
+      continue;
+    }
+
+    // If a raw .mpd url
+    if (!line.startsWith("#") && line.includes(".mpd")){
+      const mpd = line;
+      // pick kid/key: per-channel if present, else global
+      const kid = pending.kid || globalKid || null;
+      const key = pending.key || globalKey || null;
+
+      channels.push({
+        name: pending.name || mpd,
+        logo: pending.logo || null,
+        group: pending.group || "Sin grupo",
+        tvgId: pending.tvgId || null,
+        chNumber: pending.chNumber || null,
+        kid: kid,
+        key: key,
+        mpd: mpd
+      });
+
+      // reset pending channel props
+      pending = {};
+    }
+  }
+
+  return { channels, epg_urls };
+}
+
+/* Parse XMLTV plain text into index by channel id */
+function parseXmltv(xmlText){
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(xmlText, "application/xml");
+  const channelNodes = Array.from(doc.querySelectorAll("channel"));
+  const programmeNodes = Array.from(doc.querySelectorAll("programme"));
+
+  const channels = {};
+  channelNodes.forEach(ch => {
+    const id = ch.getAttribute("id");
+    const display = ch.querySelector("display-name");
+    channels[id] = {
+      id,
+      display: display ? display.textContent : id,
+      icon: (ch.querySelector("icon") ? ch.querySelector("icon").getAttribute("src") : null),
+      programmes: []
+    };
+  });
+
+  programmeNodes.forEach(pr => {
+    const chId = pr.getAttribute("channel");
+    const start = pr.getAttribute("start");
+    const stop = pr.getAttribute("stop");
+    const titleNode = pr.querySelector("title");
+    const descNode = pr.querySelector("desc");
+    const title = titleNode ? titleNode.textContent : "—";
+    const desc = descNode ? descNode.textContent : "";
+    const startDate = parseXmltvTime(start);
+    const stopDate = parseXmltvTime(stop);
+    const obj = { title, desc, start: startDate, stop: stopDate };
+    if (!channels[chId]) channels[chId] = { id: chId, display: chId, icon: null, programmes: [] };
+    channels[chId].programmes.push(obj);
+  });
+
+  // sort programmes per channel
+  for (const id in channels){
+    channels[id].programmes.sort((a,b) => a.start - b.start);
+  }
+
+  return channels; // keyed by channel id
+}
+
+/* Load EPGs from list of URLs (xml.gz) and merge them. Use cache if present. */
+async function loadAndParseEPG(epgUrls){
+  // Try to use cached EPG first
+  const cached = localStorage.getItem(LS_EPG);
+  if (cached){
+    try {
+      EPG_BY_ID = JSON.parse(cached);
+    } catch(e) {
+      EPG_BY_ID = {};
+    }
+  } else {
+    EPG_BY_ID = {};
+  }
+
+  // Fetch each epg url, decompress, parse and merge
+  for (const url of epgUrls){
+    try {
+      const text = await fetchGzToText(url);
+      const parsed = parseXmltv(text);
+      // merge
+      for (const id in parsed){
+        if (!EPG_BY_ID[id]) EPG_BY_ID[id] = parsed[id];
+        else {
+          // merge programmes
+          EPG_BY_ID[id].programmes = EPG_BY_ID[id].programmes.concat(parsed[id].programmes);
+          // dedupe & sort
+          EPG_BY_ID[id].programmes.sort((a,b) => a.start - b.start);
+        }
+      }
+    } catch(e){
+      console.warn("EPG fetch/parse failed for", url, e);
+      // continue with others
+    }
+  }
+
+  // Save cache
+  try {
+    localStorage.setItem(LS_EPG, JSON.stringify(EPG_BY_ID));
+  } catch(e) {
+    console.warn("No se pudo cachear EPG:", e);
+  }
+}
+
+/* Render grid */
+function renderGrid(list){
+  const grid = document.getElementById("grid");
+  grid.innerHTML = "";
+  list.forEach((ch, idx) => {
+    const card = document.createElement("div");
+    card.className = "card";
+    card.dataset.index = idx;
+
+    const thumb = document.createElement("div");
+    thumb.className = "thumb";
+    const img = document.createElement("img");
+    img.src = ch.logo || placeholderLogo;
+    img.alt = ch.name;
+    thumb.appendChild(img);
+
+    const meta = document.createElement("div");
+    meta.className = "meta";
+
+    const nm = document.createElement("div");
+    nm.className = "name";
+    nm.textContent = ch.name;
+
+    const sub = document.createElement("div");
+    sub.className = "sub";
+    sub.textContent = `${ch.group} ${ch.tvgId ? " • " + ch.tvgId : ""}`;
+
+    meta.appendChild(nm);
+    meta.appendChild(sub);
+
+    card.appendChild(thumb);
+    card.appendChild(meta);
+
+    card.addEventListener("click", () => {
+      loadChannel(ch);
+      localStorage.setItem(LS_LAST, JSON.stringify(ch));
+    });
+
+    grid.appendChild(card);
+  });
+}
+
+/* Filter helper */
+function applyFilter(q){
+  q = (q||"").toLowerCase();
+  const filtered = CHANNELS.filter(c => {
+    return (c.name && c.name.toLowerCase().includes(q))
+      || (c.group && c.group.toLowerCase().includes(q))
+      || (c.tvgId && c.tvgId.toLowerCase().includes(q))
+      || (c.chNumber && String(c.chNumber).includes(q));
+  });
+  renderGrid(filtered);
+}
+
+/* Shaka player loader */
+async function setupShaka(){
+  // shaka polyfills
+  shaka.polyfill.installAll();
+  if (!shaka.Player.isBrowserSupported()) {
+    console.error("Navegador no soportado por Shaka");
+  }
+}
+
+/* Load and play channel */
+async function loadChannel(ch){
+  currentChannel = ch;
+  // Destroy existing player to avoid duplicate instances
+  if (currentPlayer){
+    try { currentPlayer.destroy(); } catch(e){}
+    currentPlayer = null;
+  }
+
+  const video = document.getElementById("video");
+  const player = new shaka.Player(video);
+  currentPlayer = player;
+
+  player.addEventListener('error', e => console.error("Shaka error", e));
+
+  // configure DRM ClearKey
+  if (ch.kid && ch.key){
+    const cfg = {
+      drm: {
+        clearKeys: {
+          [ch.kid]: ch.key
+        }
+      }
+    };
+    player.configure(cfg);
+  } else {
+    // no clearkey provided; let Shaka try with server licenses if mpd includes DRM
+    player.configure({ drm: {} });
+  }
+
+  try {
+    await player.load(ch.mpd);
+    console.log("Reproduciendo", ch.name);
+    updateNowNextUI(ch);
+  } catch(e){
+    console.error("Error cargando MPD:", e);
+    alert("Error al cargar el MPD. Revisa consola.");
+  }
+}
+
+/* Update Now / Next UI using EPG and tvg-id */
+function updateNowNextUI(ch){
+  const nowTitle = document.getElementById("nowTitle");
+  const nowTime = document.getElementById("nowTime");
+  const nextTitle = document.getElementById("nextTitle");
+  const nextTime = document.getElementById("nextTime");
+
+  nowTitle.textContent = `Reproduciendo • ${ch.name}`;
+  nowTime.textContent = ch.mpd;
+
+  // Clear UI defaults
+  nextTitle.textContent = "—";
+  nextTime.textContent = "—";
+
+  if (!ch.tvgId) return;
+
+  const epg = EPG_BY_ID[ch.tvgId] || EPG_BY_ID[ch.tvgId.replace(/\s+/g, '')] || null;
+  if (!epg || !epg.programmes || epg.programmes.length === 0) return;
+
+  const now = new Date();
+  const programmes = epg.programmes;
+  let current = null, next = null;
+
+  for (let i = 0; i < programmes.length; i++){
+    const p = programmes[i];
+    if (p.start <= now && now < p.stop) {
+      current = p;
+      next = programmes[i+1] || null;
+      break;
+    }
+    if (p.start > now) {
+      // next upcoming
+      next = p;
+      break;
+    }
+  }
+
+  if (current){
+    nowTitle.textContent = `${current.title}`;
+    nowTime.textContent = formatTimeRange(current.start, current.stop);
+  } else {
+    nowTitle.textContent = "Sin programa ahora";
+    nowTime.textContent = "";
+  }
+
+  if (next){
+    nextTitle.textContent = next.title;
+    nextTime.textContent = formatTimeRange(next.start, next.stop);
+  }
+}
+
+/* Initialize everything */
+async function boot(){
+  await setupShaka();
+
+  // Try to use cached M3U parsed if M3U URL unchanged
+  let parsedObj = null;
+  const cachedM3UText = localStorage.getItem(LS_M3U);
+  try {
+    const resp = await fetch(M3U_URL, { method: "GET", cache: "no-cache" });
+    if (resp.ok) {
+      const remoteText = await resp.text();
+      if (cachedM3UText && cachedM3UText === remoteText){
+        // use cached parsed channels if present
+        const cachedParsed = localStorage.getItem(LS_M3U_PARSED);
+        if (cachedParsed){
+          parsedObj = JSON.parse(cachedParsed);
+        } else {
+          parsedObj = parseM3UText(remoteText);
+          localStorage.setItem(LS_M3U_PARSED, JSON.stringify(parsedObj));
+        }
+      } else {
+        // remote changed or no cache
+        parsedObj = parseM3UText(remoteText);
+        localStorage.setItem(LS_M3U, remoteText);
+        localStorage.setItem(LS_M3U_PARSED, JSON.stringify(parsedObj));
+      }
+    } else {
+      // remote fetch failed -> fallback to cached parse
+      if (localStorage.getItem(LS_M3U_PARSED)){
+        parsedObj = JSON.parse(localStorage.getItem(LS_M3U_PARSED));
+      } else {
+        throw new Error("No hay M3U disponible");
+      }
+    }
+  } catch(e){
+    console.warn("Error al leer M3U remoto, intentando cache...", e);
+    if (localStorage.getItem(LS_M3U_PARSED)){
+      parsedObj = JSON.parse(localStorage.getItem(LS_M3U_PARSED));
+    } else {
+      try {
+        const text = await fetchTextMaybeCached(M3U_URL, LS_M3U);
+        parsedObj = parseM3UText(text);
+        localStorage.setItem(LS_M3U_PARSED, JSON.stringify(parsedObj));
+      } catch(err){
+        console.error("No pude obtener M3U", err);
+        alert("No pude obtener la lista M3U. Revisa la URL en la variable M3U_URL.");
+        return;
+      }
+    }
+  }
+
+  CHANNELS = parsedObj.channels || [];
+  const epgUrls = parsedObj.epg_urls || [];
+
+  // load EPGs (try cached first inside function)
+  if (epgUrls.length) {
+    document.getElementById("lastUpdate").textContent = "cargando EPG...";
+    await loadAndParseEPG(epgUrls);
+    document.getElementById("lastUpdate").textContent = new Date().toLocaleString();
+  } else {
+    document.getElementById("lastUpdate").textContent = "sin EPG";
+  }
+
+  renderGrid(CHANNELS);
+
+  // Setup search
+  const filter = document.getElementById("filter");
+  filter.addEventListener("input", (e) => applyFilter(e.target.value));
+
+  // Buttons
+  document.getElementById("refreshBtn").addEventListener("click", async () => {
+    // force refresh: clear caches stored
+    localStorage.removeItem(LS_M3U);
+    localStorage.removeItem(LS_M3U_PARSED);
+    localStorage.removeItem(LS_EPG);
+    location.reload();
+  });
+  document.getElementById("stopBtn").addEventListener("click", () => {
+    if (currentPlayer){
+      try { currentPlayer.pause(); } catch(e){}
+      const v = document.getElementById("video"); v.pause();
+    }
+  });
+  document.getElementById("rememberBtn").addEventListener("click", () => {
+    const last = localStorage.getItem(LS_LAST);
+    if (last){
+      const ch = JSON.parse(last);
+      loadChannel(ch);
+    } else alert("No hay canal recordado.");
+  });
+
+  // Auto-load last channel if any
+  const lastCh = localStorage.getItem(LS_LAST);
+  if (lastCh){
+    try {
+      const ch = JSON.parse(lastCh);
+      // find matching channel in current CHANNELS by mpd or tvgId
+      const found = CHANNELS.find(c => c.mpd === ch.mpd || (c.tvgId && ch.tvgId && c.tvgId === ch.tvgId));
+      if (found) loadChannel(found);
+    } catch(e){}
+  }
+}
+
+/* Start */
+document.addEventListener("DOMContentLoaded", boot);
+</script>
+</body>
+</html>
