@@ -1,1092 +1,256 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="utf-8" />
-  <title>IPTV Player (Soporte KODIPROP + DRM)</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
-  
+  <meta charset="UTF-8">
+  <title>IPTV Shaka Player</title>
+
+  <!-- UI Shaka -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.4.1/controls.min.css">
+
+  <!-- Chromecast Sender -->
   <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
 
+  <!-- Shaka Player -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.4.1/shaka-player.compiled.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.4.1/shaka-player.ui.min.js"></script>
+
   <style>
-    :root { --bg: #09090b; --panel: #18181b; --text: #e4e4e7; --accent: #22c55e; }
-    body { margin: 0; background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; height: 100vh; display: flex; flex-direction: column; }
-    
-    header { padding: 1rem; background: var(--panel); display: flex; align-items: center; border-bottom: 1px solid #27272a; }
-    h1 { margin: 0; font-size: 1.2rem; font-weight: 700; }
-    
-    .layout { display: grid; grid-template-columns: 350px 1fr; flex: 1; overflow: hidden; }
-    
-    /* Sidebar */
-    #sidebar { background: var(--panel); display: flex; flex-direction: column; border-right: 1px solid #27272a; }
-    .search-box { padding: 10px; border-bottom: 1px solid #27272a; display: flex; gap: 5px; }
-    input { flex: 1; background: #27272a; border: none; padding: 8px; border-radius: 4px; color: white; }
-    #grid { flex: 1; overflow-y: auto; padding: 10px; display: grid; grid-template-columns: 1fr; gap: 5px; align-content: start; }
-    
-    .card { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 6px; cursor: pointer; transition: background 0.2s; }
-    .card:hover { background: #27272a; }
-    .card.active { background: #22c55e20; border: 1px solid #22c55e40; }
-    .logo { width: 50px; height: 30px; object-fit: contain; background: #000; border-radius: 4px; }
-    .info { overflow: hidden; }
-    .ch-name { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .ch-group { font-size: 12px; color: #a1a1aa; }
+    body {
+      margin: 0;
+      background: #111;
+      color: white;
+      font-family: sans-serif;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
 
-    /* Player */
-    #main { display: flex; flex-direction: column; background: #000; position: relative; }
-    #videoContainer { flex: 1; display: flex; align-items: center; justify-content: center; background: #000; }
-    video { width: 100%; height: 100%; max-height: 100vh; outline: none; }
-    
-    .controls { padding: 15px; background: var(--panel); display: flex; align-items: center; gap: 15px; }
-    .playing-info { flex: 1; }
-    .status-pill { display: inline-block; padding: 2px 6px; font-size: 10px; border-radius: 4px; background: #333; margin-bottom: 4px; }
-    .drm-badge { background: #eab308; color: #000; font-weight: bold; }
+    #layout {
+      display: grid;
+      grid-template-columns: 300px 1fr;
+      grid-template-rows: auto 1fr;
+      gap: 5px;
+      height: 100%;
+    }
 
-    /* Cast Button Styling */
-    google-cast-launcher { width: 30px; height: 30px; cursor: pointer; display: none; } 
-    /* Se mostrará via JS cuando esté disponible */
+    #canales {
+      overflow-y: auto;
+      padding: 10px;
+      background: #202020;
+    }
 
-    @media (max-width: 768px) {
-      .layout { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
-      #sidebar { display: none; } /* Ocultar lista en móvil mientras reproduce, lógica simple */
-      #sidebar.show { display: flex; position: fixed; inset: 0; z-index: 10; }
+    #player-container {
+      grid-column: 2;
+      grid-row: 1 / span 2;
+      position: relative;
+      background: black;
+    }
+
+    #video-container {
+      width: 100%;
+      height: 100%;
+    }
+
+    #consolePanel {
+      height: 150px;
+      background: black;
+      overflow-y: auto;
+      font-size: 12px;
+      padding: 10px;
+      border-top: 1px solid #444;
+      white-space: pre-wrap;
+    }
+
+    .canal {
+      padding: 6px;
+      border-bottom: 1px solid #333;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .canal:hover {
+      background: #333;
+    }
+
+    .canal img {
+      width: 40px;
+      height: 40px;
+      object-fit: contain;
     }
   </style>
 </head>
 <body>
 
-<header>
-  <h1>IPTV Pro Player</h1>
-  <div style="flex:1"></div>
-  <button onclick="toggleList()" style="padding:5px 10px; background:#333; color:white; border:none; border-radius:4px;">Lista</button>
-</header>
+<div id="layout">
 
-<div class="layout">
-  <aside id="sidebar">
-    <div class="search-box">
-      <input id="searchInput" placeholder="Buscar canal..." onkeyup="filterGrid()">
-      <button onclick="loadM3U()" title="Recargar">↻</button>
-    </div>
-    <div id="grid"></div>
-  </aside>
+  <!-- Sidebar con grilla -->
+  <div id="canales">
+    <h3>Canales</h3>
+    <div id="listaCanales"></div>
+  </div>
 
-  <main id="main">
-    <div id="videoContainer">
-      <video id="video" controls autoplay playsinline></video>
+  <!-- Reproductor -->
+  <div id="player-container">
+    <div id="video-container" data-shaka-player-container>
+      <div data-shaka-player-ui></div>
+      <video id="video" autoplay controls></video>
     </div>
-    <div class="controls">
-      <div class="playing-info">
-        <div id="statusBadges"></div>
-        <div id="nowPlaying" style="font-weight:bold">Selecciona un canal</div>
-        <div id="nowEpg" style="font-size:12px; color:#aaa">...</div>
-      </div>
-      
-      <div id="castContainer">
-        <google-cast-launcher id="castBtn"></google-cast-launcher>
-      </div>
-    </div>
-  </main>
+  </div>
+
 </div>
 
+<!-- Consola visible -->
+<div id="consolePanel"></div>
+
 <script>
-/** * PEGA TU LISTA M3U EN UN GITHUB O PASTEBIN RAW Y PON LA URL AQUÍ 
- * O usa una variable de texto local si prefieres.
- */
-const M3U_URL = "https://raw.githubusercontent.com/TU_USUARIO/TU_REPO/main/lista.m3u"; 
+// ---------------------------
+// Consola visible
+// ---------------------------
+const logPanel = document.getElementById('consolePanel');
 
-// Variables de estado
-let CHANNELS = [];
-let player = null;
-let currentChannel = null;
-
-// --- 1. PARSEO AVANZADO (Soporta tu formato) ---
-function parseM3U(text) {
-  const lines = text.split(/\r?\n/);
-  const channels = [];
-  
-  let current = {}; // Datos temporales del canal
-  let globalKid = null;
-  let globalKey = null;
-
-  for (let line of lines) {
-    line = line.trim();
-    if (!line) continue;
-
-    // Claves Globales (a veces aparecen al inicio del archivo)
-    if (line.startsWith("#KODIPROP:inputstream.adaptive.license_key=")) {
-      const val = line.split("=")[1];
-      // Formato KID:KEY
-      if (val.includes(":") && !val.includes("http")) { 
-        const parts = val.split(":");
-        // Si estamos parseando un canal específico, es local, si no, es global?
-        // En tu lista, las claves están justo antes del EXTINF, así que las guardamos en 'current'
-        current.kid = parts[0];
-        current.key = parts[1];
-      }
-      continue;
-    }
-
-    // Metadata del canal
-    if (line.startsWith("#EXTINF:")) {
-      const info = line.substring(8);
-      const parts = info.split(",");
-      current.name = parts[parts.length - 1].trim();
-      
-      // Extraer logo
-      const logoMatch = line.match(/tvg-logo="([^"]+)"/);
-      if (logoMatch) current.logo = logoMatch[1];
-      
-      // Extraer grupo
-      const groupMatch = line.match(/group-title="([^"]+)"/);
-      current.group = groupMatch ? groupMatch[1] : "General";
-      
-      // Extraer ID para EPG
-      const idMatch = line.match(/tvg-id="([^"]+)"/);
-      if (idMatch) current.id = idMatch[1];
-      
-      continue;
-    }
-
-    // URL del stream (Línea final del bloque)
-    if (!line.startsWith("#")) {
-      current.url = line;
-      
-      // Determinar tipo de DRM
-      if (current.kid && current.key) {
-        current.drm = true;
-      }
-      
-      channels.push({...current});
-      current = {}; // Reset para el siguiente canal
-    }
-  }
-  return channels;
+function log(msg) {
+  logPanel.textContent += msg + "\n";
+  logPanel.scrollTop = logPanel.scrollHeight;
 }
 
-// --- 2. RENDERIZADO VISUAL ---
-function renderGrid(list) {
-  const grid = document.getElementById("grid");
-  grid.innerHTML = "";
-  
-  list.forEach((ch, index) => {
-    const div = document.createElement("div");
-    div.className = "card";
-    div.onclick = () => playChannel(ch, div);
-    
-    div.innerHTML = `
-      <div class="logo">
-        <img src="${ch.logo || ''}" style="width:100%;height:100%;object-fit:contain;" onerror="this.style.display='none'">
-      </div>
-      <div class="info">
-        <div class="ch-name">${ch.name}</div>
-        <div class="ch-group">${ch.group} ${ch.drm ? '🔒' : ''}</div>
-      </div>
-    `;
-    grid.appendChild(div);
-  });
-}
-
-function filterGrid() {
-  const q = document.getElementById("searchInput").value.toLowerCase();
-  const filtered = CHANNELS.filter(c => c.name.toLowerCase().includes(q) || c.group.toLowerCase().includes(q));
-  renderGrid(filtered);
-}
-
-// --- 3. REPRODUCTOR (SHAKA + DRM) ---
-async function initApp() {
-  shaka.polyfill.installAll();
-  if (shaka.Player.isBrowserSupported()) {
-    const video = document.getElementById('video');
-    player = new shaka.Player(video);
-    player.addEventListener('error', onErrorEvent);
-    
-    // Intentar cargar lista (simulada o fetch real)
-    // Para probar YA MISMO, parseamos el texto si no hay URL real:
-    try {
-       const response = await fetch(M3U_URL); // Cambia esto si usas archivo local
-       if(response.ok) {
-          const text = await response.text();
-          CHANNELS = parseM3U(text);
-          renderGrid(CHANNELS);
-       }
-    } catch (e) {
-       console.log("Esperando carga manual o URL válida...");
-    }
-  } else {
-    console.error('Navegador no compatible');
-  }
-}
-
-async function playChannel(ch, cardEl) {
-  // UI Update
-  document.querySelectorAll('.card').forEach(c => c.classList.remove('active'));
-  if(cardEl) cardEl.classList.add('active');
-  
-  document.getElementById("nowPlaying").textContent = ch.name;
-  const badges = document.getElementById("statusBadges");
-  badges.innerHTML = ch.drm ? '<span class="status-pill drm-badge">DRM KEY</span>' : '';
-  
-  currentChannel = ch;
-
-  // Configurar Player
-  const config = { drm: {} };
-
-  // Si el canal tiene llaves ClearKey
-  if (ch.kid && ch.key) {
-    config.drm.clearKeys = {
-      [ch.kid]: ch.key
-    };
-  }
-
-  player.configure(config);
-
-  try {
-    await player.load(ch.url);
-    console.log('Reproduciendo:', ch.name);
-  } catch (e) {
-    console.error('Error al cargar:', e);
-    onErrorEvent({detail: e});
-  }
-}
-
-function onErrorEvent(event) {
-  console.error('Error code', event.detail.code, 'object', event.detail);
-}
-
-// --- 4. GOOGLE CAST INTEGRATION ---
-window['__onGCastApiAvailable'] = function(isAvailable) {
-  if (isAvailable) {
-    initializeCastApi();
-  }
+// Captura errores globales
+window.onerror = (msg, src, line) => {
+  log(`JS ERROR: ${msg} (${src}:${line})`);
 };
 
-function initializeCastApi() {
-  cast.framework.CastContext.getInstance().setOptions({
-    receiverApplicationId: chrome.cast.media.DEFAULT_MEDIA_RECEIVER_APP_ID,
-    autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
-  });
-  
-  // Mostrar botón
-  const btn = document.getElementById("castBtn");
-  if(btn) btn.style.display = "block";
+// Captura console.error
+const origError = console.error;
+console.error = (...args) => {
+  origError(...args);
+  log("Console error: " + args.join(" "));
+};
 
-  // Listener de sesión
-  cast.framework.CastContext.getInstance().addEventListener(
-    cast.framework.CastContextEventType.SESSION_STATE_CHANGED,
-    (event) => {
-      switch (event.sessionState) {
-        case cast.framework.SessionState.SESSION_STARTED:
-          if (currentChannel) loadRemoteMedia(currentChannel);
-          break;
-      }
-    }
-  );
-}
+// ---------------------------
+// Inicializar Shaka + UI + Cast
+// ---------------------------
+document.addEventListener("shaka-ui-loaded", () => {
+  const video = document.getElementById('video');
+  const container = document.getElementById('video-container');
 
-function loadRemoteMedia(ch) {
-  const castSession = cast.framework.CastContext.getInstance().getCurrentSession();
-  const mediaInfo = new chrome.cast.media.MediaInfo(ch.url, 'application/dash+xml'); // Asumimos DASH por defecto
-  
-  // Metadata
-  mediaInfo.metadata = new chrome.cast.media.GenericMediaMetadata();
-  mediaInfo.metadata.title = ch.name;
-  if(ch.logo) mediaInfo.metadata.images = [new chrome.cast.Image(ch.logo)];
+  const ui = new shaka.ui.Overlay(shaka.Player, container, video);
+  const controls = ui.getControls();
+  const player = controls.getPlayer();
 
-  // IMPORTANTE: Enviar las llaves DRM al Chromecast
-  // Nota: El receptor por defecto de Chrome puede NO soportar ClearKey vía customData
-  // Se requeriría un Receiver App personalizado para DRM robusto.
-  if (ch.kid && ch.key) {
-     mediaInfo.customData = {
-        "license": {
-           "keys": [{ "kty": "oct", "kid": ch.kid, "k": ch.key }]
-        }
-     };
-  }
-
-  const request = new chrome.cast.media.LoadRequest(mediaInfo);
-  castSession.loadMedia(request).then(
-    function() { console.log('Casting success'); },
-    function(errorCode) { console.log('Casting error code: ' + errorCode); }
-  );
-}
-
-// Utilidad para móvil
-function toggleList() {
-  document.getElementById("sidebar").classList.toggle("show");
-}
-
-// Iniciar
-document.addEventListener('DOMContentLoaded', initApp);
-
-</script>
-</body>
-  </html>    throw e;
-  }
-}
-
-/* Fetch and decompress .gz (arrayBuffer -> pako.inflate -> text) */
-async function fetchGzToText(url){
-  const resp = await fetch(url, { method: "GET", cache: "no-cache" });
-  if (!resp.ok) throw new Error("EPG HTTP " + resp.status);
-  const buffer = await resp.arrayBuffer();
-  const u8 = new Uint8Array(buffer);
-  const infl = pako.ungzip(u8);
-  const decoder = new TextDecoder("utf-8");
-  return decoder.decode(infl);
-}
-
-/* Parse M3U (soporta header EXTM3U with url-tvg=... and #KODIPROP license lines) */
-async function parseM3UFromURL(url){
-  const res = await fetch(url, { cache: "no-cache" });
-  if (!res.ok) throw new Error("M3U HTTP " + res.status);
-  const text = await res.text();
-  localStorage.setItem(LS_M3U, text);
-  return parseM3UText(text);
-}
-
-function parseM3UText(text){
-  const lines = text.split(/\r?\n/);
-  const channels = [];
-  let epg_urls = [];
-  let pending = {}; // temp store: name,logo,group,tvg-id,ch-number,kid,key
-
-  let globalKid = null, globalKey = null;
-
-  for (let raw of lines){
-    const line = raw.trim();
-    if (!line) continue;
-
-    // Header with url-tvg (can be multiple separated by commas)
-    if (line.startsWith("#EXTM3U")){
-      const m = line.match(/url-tvg="([^"]+)"/);
-      if (m && m[1]) {
-        epg_urls = m[1].split(",").map(s => s.trim()).filter(Boolean);
-      }
-      continue;
-    }
-
-    // KODIPROP license type (ignored) and license_key
-    if (line.startsWith("#KODIPROP:inputstream.adaptive.license_key=")){
-      const val = line.split("=")[1] || "";
-      if (val.includes(":")){
-        [globalKid, globalKey] = val.split(":").map(s => s.trim().toLowerCase());
-      }
-      continue;
-    }
-
-    // EXTINF entries
-    if (line.startsWith("#EXTINF")){
-      // collect attributes
-      const logoMatch = line.match(/tvg-logo="([^"]+)"/);
-      const groupMatch = line.match(/group-title="([^"]+)"/);
-      const idMatch = line.match(/tvg-id="([^"]+)"/);
-      const name = line.split(",").slice(1).join(",").trim();
-
-      pending.name = name || "Sin nombre";
-      pending.logo = logoMatch ? logoMatch[1] : null;
-      pending.group = groupMatch ? groupMatch[1] : "Sin grupo";
-      pending.tvgId = idMatch ? idMatch[1] : null;
-      continue;
-    }
-
-    // KODIPROP lines that appear near channel (they may be global or per-channel)
-    if (line.startsWith("#KODIPROP:inputstream.adaptive.license_key=")){
-      const val = line.split("=")[1] || "";
-      if (val.includes(":")){
-        const [kKid, kKey] = val.split(":").map(s => s.trim().toLowerCase());
-        pending.kid = kKid;
-        pending.key = kKey;
-      }
-      continue;
-    }
-
-    // Some lists use EXTVLCOPT:dash-kid / dash-key (handle both)
-    if (line.startsWith("#EXTVLCOPT:dash-kid=")){
-      pending.kid = line.split("=")[1].trim().toLowerCase();
-      continue;
-    }
-    if (line.startsWith("#EXTVLCOPT:dash-key=")){
-      pending.key = line.split("=")[1].trim().toLowerCase();
-      continue;
-    }
-
-    // If a raw .mpd url
-    if (!line.startsWith("#") && line.includes(".mpd")){
-      const mpd = line;
-      // pick kid/key: per-channel if present, else global
-      const kid = pending.kid || globalKid || null;
-      const key = pending.key || globalKey || null;
-
-      channels.push({
-        name: pending.name || mpd,
-        logo: pending.logo || null,
-        group: pending.group || "Sin grupo",
-        tvgId: pending.tvgId || null,
-        chNumber: pending.chNumber || null,
-        kid: kid,
-        key: key,
-        mpd: mpd
-      });
-
-      // reset pending channel props
-      pending = {};
-    }
-  }
-
-  return { channels, epg_urls };
-}
-
-/* Parse XMLTV plain text into index by channel id */
-function parseXmltv(xmlText){
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(xmlText, "application/xml");
-  const channelNodes = Array.from(doc.querySelectorAll("channel"));
-  const programmeNodes = Array.from(doc.querySelectorAll("programme"));
-
-  const channels = {};
-  channelNodes.forEach(ch => {
-    const id = ch.getAttribute("id");
-    const display = ch.querySelector("display-name");
-    channels[id] = {
-      id,
-      display: display ? display.textContent : id,
-      icon: (ch.querySelector("icon") ? ch.querySelector("icon").getAttribute("src") : null),
-      programmes: []
-    };
+  ui.configure({
+    controlPanelElements: [
+      'play_pause',
+      'time_and_duration',
+      'cast',
+      'mute',
+      'volume',
+      'fullscreen'
+    ]
   });
 
-  programmeNodes.forEach(pr => {
-    const chId = pr.getAttribute("channel");
-    const start = pr.getAttribute("start");
-    const stop = pr.getAttribute("stop");
-    const titleNode = pr.querySelector("title");
-    const descNode = pr.querySelector("desc");
-    const title = titleNode ? titleNode.textContent : "—";
-    const desc = descNode ? descNode.textContent : "";
-    const startDate = parseXmltvTime(start);
-    const stopDate = parseXmltvTime(stop);
-    const obj = { title, desc, start: startDate, stop: stopDate };
-    if (!channels[chId]) channels[chId] = { id: chId, display: chId, icon: null, programmes: [] };
-    channels[chId].programmes.push(obj);
-  });
+  log("Shaka UI cargada correctamente.");
 
-  // sort programmes per channel
-  for (const id in channels){
-    channels[id].programmes.sort((a,b) => a.start - b.start);
-  }
-
-  return channels; // keyed by channel id
-}
-
-/* Load EPGs from list of URLs (xml.gz) and merge them. Use cache if present. */
-async function loadAndParseEPG(epgUrls){
-  // Try to use cached EPG first
-  const cached = localStorage.getItem(LS_EPG);
-  if (cached){
-    try {
-      EPG_BY_ID = JSON.parse(cached);
-    } catch(e) {
-      EPG_BY_ID = {};
-    }
-  } else {
-    EPG_BY_ID = {};
-  }
-
-  // Fetch each epg url, decompress, parse and merge
-  for (const url of epgUrls){
-    try {
-      const text = await fetchGzToText(url);
-      const parsed = parseXmltv(text);
-      // merge
-      for (const id in parsed){
-        if (!EPG_BY_ID[id]) EPG_BY_ID[id] = parsed[id];
-        else {
-          // merge programmes
-          EPG_BY_ID[id].programmes = EPG_BY_ID[id].programmes.concat(parsed[id].programmes);
-          // dedupe & sort
-          EPG_BY_ID[id].programmes.sort((a,b) => a.start - b.start);
-        }
-      }
-    } catch(e){
-      console.warn("EPG fetch/parse failed for", url, e);
-      // continue with others
-    }
-  }
-
-  // Save cache
-  try {
-    localStorage.setItem(LS_EPG, JSON.stringify(EPG_BY_ID));
-  } catch(e) {
-    console.warn("No se pudo cachear EPG:", e);
-  }
-}
-
-/* Render grid */
-function renderGrid(list){
-  const grid = document.getElementById("grid");
-  grid.innerHTML = "";
-  list.forEach((ch, idx) => {
-    const card = document.createElement("div");
-    card.className = "card";
-    card.dataset.index = idx;
-
-    const thumb = document.createElement("div");
-    thumb.className = "thumb";
-    const img = document.createElement("img");
-    img.src = ch.logo || placeholderLogo;
-    img.alt = ch.name;
-    thumb.appendChild(img);
-
-    const meta = document.createElement("div");
-    meta.className = "meta";
-
-    const nm = document.createElement("div");
-    nm.className = "name";
-    nm.textContent = ch.name;
-
-    const sub = document.createElement("div");
-    sub.className = "sub";
-    sub.textContent = `${ch.group} ${ch.tvgId ? " • " + ch.tvgId : ""}`;
-
-    meta.appendChild(nm);
-    meta.appendChild(sub);
-
-    card.appendChild(thumb);
-    card.appendChild(meta);
-
-    card.addEventListener("click", () => {
-      loadChannel(ch);
-      localStorage.setItem(LS_LAST, JSON.stringify(ch));
-    });
-
-    grid.appendChild(card);
-  });
-}
-
-/* Filter helper */
-function applyFilter(q){
-  q = (q||"").toLowerCase();
-  const filtered = CHANNELS.filter(c => {
-    return (c.name && c.name.toLowerCase().includes(q))
-      || (c.group && c.group.toLowerCase().includes(q))
-      || (c.tvgId && c.tvgId.toLowerCase().includes(q))
-      || (c.chNumber && String(c.chNumber).includes(q));
-  });
-  renderGrid(filtered);
-}
-
-/* Shaka player loader */
-async function setupShaka(){
-  // shaka polyfills
-  shaka.polyfill.installAll();
-  if (!shaka.Player.isBrowserSupported()) {
-    console.error("Navegador no soportado por Shaka");
-  }
-}
-
-/* Google Cast API initialization */
-function initializeCastApi() {
-  try {
-    cast.framework.CastContext.getInstance().setOptions({
-      receiverApplicationId: chrome.cast.media.DEFAULT_MEDIA_RECEIVER_APP_ID,
-      // For production, use your custom Cast Receiver App ID:
-      // receiverApplicationId: 'YOUR_CUSTOM_APP_ID',
-      autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
-    });
-
-    // Add event listeners for cast state changes
-    cast.framework.CastContext.getInstance().addEventListener(
-      cast.framework.CastContextEventType.SESSION_STATE_CHANGED,
-      (event) => {
-        updateCastStatus(event.sessionState);
-      }
-    );
-
-    console.log("Google Cast API initialized successfully");
-  } catch (error) {
-    console.error("Error initializing Google Cast API:", error);
-  }
-}
-
-/* Update cast connection status UI */
-function updateCastStatus(sessionState) {
-  const castStatusText = document.getElementById("castStatusText");
-  const castStatus = document.getElementById("castStatus");
-  
-  switch (sessionState) {
-    case cast.framework.SessionState.SESSION_STARTED:
-    case cast.framework.SessionState.SESSION_RESUMED:
-      castStatusText.textContent = "Transmitiendo";
-      castStatus.classList.add("cast-active");
-      break;
-    case cast.framework.SessionState.SESSION_ENDED:
-      castStatusText.textContent = "Sin conexión";
-      castStatus.classList.remove("cast-active");
-      // When casting ends, reload current channel locally if any
-      if (currentChannel) {
-        loadChannelLocal(currentChannel);
-      }
-      break;
-    default:
-      castStatusText.textContent = "Sin conexión";
-      castStatus.classList.remove("cast-active");
-  }
-}
-
-/* Load channel to Cast device */
-async function loadChannelToCast(ch) {
-  try {
-    const castSession = cast.framework.CastContext.getInstance().getCurrentSession();
-    
-    if (!castSession) {
-      console.error("No active Cast session");
-      return false;
-    }
-
-    const mediaInfo = new chrome.cast.media.MediaInfo(ch.mpd, 'application/dash+xml');
-    mediaInfo.metadata = new chrome.cast.media.GenericMediaMetadata();
-    mediaInfo.metadata.title = ch.name;
-    mediaInfo.metadata.subtitle = ch.group;
-    
-    if (ch.logo) {
-      mediaInfo.metadata.images = [new chrome.cast.Image(ch.logo)];
-    }
-
-    const request = new chrome.cast.media.LoadRequest(mediaInfo);
-    
-    // Configure DRM for Cast if needed
-    if (ch.kid && ch.key) {
-      const drmInfo = {
-        keySystem: 'org.w3.clearkey',
-        initData: { kids: [ch.kid] },
-        licenseUrl: `data:application/json;base64,${btoa(JSON.stringify({ keys: [{ kty: 'oct', kid: ch.kid, k: ch.key }] }))}`
-      };
-      mediaInfo.drm = drmInfo;
-    }
-
-    await castSession.loadMedia(request);
-    console.log("Transmitiendo a Chromecast:", ch.name);
-    updateNowNextUI(ch);
-    return true;
-  } catch (error) {
-    console.error("Error transmitting to Chromecast:", error);
-    return false;
-  }
-}
-
-/* Load channel locally with Shaka Player */
-async function loadChannelLocal(ch) {
-  currentChannel = ch;
-  
-  // Destroy existing player to avoid duplicate instances
-  if (currentPlayer) {
-    try { 
-      await currentPlayer.unload();
-      currentPlayer.destroy(); 
-    } catch(e) {
-      console.warn("Error destroying previous player:", e);
-    }
-    currentPlayer = null;
-  }
-
-  const video = document.getElementById("video");
-  const player = new shaka.Player(video);
-  currentPlayer = player;
-
+  // Manejo de errores del reproductor
   player.addEventListener('error', e => {
-    console.error("Shaka error:", e.detail);
+    log("Shaka ERROR: " + JSON.stringify(e.detail));
   });
 
-  // Configure DRM ClearKey
-  if (ch.kid && ch.key) {
-    const cfg = {
+  window.player = player; // debug
+});
+
+// ---------------------------
+// Leer el M3U del repo
+// ---------------------------
+async function cargarM3U() {
+  try {
+    const res = await fetch("lista.m3u");
+    const txt = await res.text();
+
+    log("M3U cargado.");
+    procesarM3U(txt);
+
+  } catch (e) {
+    log("ERROR cargando M3U: " + e);
+  }
+}
+
+function procesarM3U(txt) {
+  const lines = txt.split("\n").map(l => l.trim());
+  const canales = [];
+  let actual = null;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    if (line.startsWith("#EXTINF")) {
+      const logo = line.match(/tvg-logo="([^"]*)"/)?.[1] || "";
+      const name = line.split(",").pop().trim();
+      actual = { name, logo };
+    }
+
+    else if (line.includes("license_key=")) {
+      if (!actual) continue;
+
+      const raw = line.split("license_key=")[1];
+      const [kid, key] = raw.split(":");
+
+      actual.kid = kid.trim();
+      actual.key = key.trim();
+    }
+
+    else if (line.startsWith("http")) {
+      if (!actual) continue;
+      actual.url = line.trim();
+      canales.push(actual);
+      actual = null;
+    }
+  }
+
+  mostrarCanales(canales);
+}
+
+function mostrarCanales(canales) {
+  const lista = document.getElementById('listaCanales');
+  lista.innerHTML = "";
+
+  canales.forEach((c, i) => {
+    const div = document.createElement("div");
+    div.className = "canal";
+    div.innerHTML = `
+      <img src="${c.logo || ""}">
+      <span>${c.name}</span>
+    `;
+    div.onclick = () => reproducir(c);
+    lista.appendChild(div);
+  });
+}
+
+// ---------------------------
+// Reproducir canal
+// ---------------------------
+async function reproducir(c) {
+  log("Reproduciendo: " + c.name);
+
+  try {
+    window.player.configure({
       drm: {
         clearKeys: {
-          [ch.kid]: ch.key
+          [c.kid]: c.key
         }
       }
-    };
-    player.configure(cfg);
-  } else {
-    // No clearkey provided; let Shaka try with server licenses if mpd includes DRM
-    player.configure({ drm: {} });
-  }
-
-  try {
-    await player.load(ch.mpd);
-    console.log("Reproduciendo localmente:", ch.name);
-    updateNowNextUI(ch);
-  } catch(e) {
-    console.error("Error cargando MPD:", e);
-    alert("Error al cargar el MPD.  = line;
-      // pick kid/key: per-channel if present, else global
-      const kid = pending.kid || globalKid || null;
-      const key = pending.key || globalKey || null;
-
-      channels.push({
-        name: pending.name || mpd,
-        logo: pending.logo || null,
-        group: pending.group || "Sin grupo",
-        tvgId: pending.tvgId || null,
-        chNumber: pending.chNumber || null,
-        kid: kid,
-        key: key,
-        mpd: mpd
-      });
-
-      // reset pending channel props
-      pending = {};
-    }
-  }
-
-  return { channels, epg_urls };
-}
-
-/* Parse XMLTV plain text into index by channel id */
-function parseXmltv(xmlText){
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(xmlText, "application/xml");
-  const channelNodes = Array.from(doc.querySelectorAll("channel"));
-  const programmeNodes = Array.from(doc.querySelectorAll("programme"));
-
-  const channels = {};
-  channelNodes.forEach(ch => {
-    const id = ch.getAttribute("id");
-    const display = ch.querySelector("display-name");
-    channels[id] = {
-      id,
-      display: display ? display.textContent : id,
-      icon: (ch.querySelector("icon") ? ch.querySelector("icon").getAttribute("src") : null),
-      programmes: []
-    };
-  });
-
-  programmeNodes.forEach(pr => {
-    const chId = pr.getAttribute("channel");
-    const start = pr.getAttribute("start");
-    const stop = pr.getAttribute("stop");
-    const titleNode = pr.querySelector("title");
-    const descNode = pr.querySelector("desc");
-    const title = titleNode ? titleNode.textContent : "—";
-    const desc = descNode ? descNode.textContent : "";
-    const startDate = parseXmltvTime(start);
-    const stopDate = parseXmltvTime(stop);
-    const obj = { title, desc, start: startDate, stop: stopDate };
-    if (!channels[chId]) channels[chId] = { id: chId, display: chId, icon: null, programmes: [] };
-    channels[chId].programmes.push(obj);
-  });
-
-  // sort programmes per channel
-  for (const id in channels){
-    channels[id].programmes.sort((a,b) => a.start - b.start);
-  }
-
-  return channels; // keyed by channel id
-}
-
-/* Load EPGs from list of URLs (xml.gz) and merge them. Use cache if present. */
-async function loadAndParseEPG(epgUrls){
-  // Try to use cached EPG first
-  const cached = localStorage.getItem(LS_EPG);
-  if (cached){
-    try {
-      EPG_BY_ID = JSON.parse(cached);
-    } catch(e) {
-      EPG_BY_ID = {};
-    }
-  } else {
-    EPG_BY_ID = {};
-  }
-
-  // Fetch each epg url, decompress, parse and merge
-  for (const url of epgUrls){
-    try {
-      const text = await fetchGzToText(url);
-      const parsed = parseXmltv(text);
-      // merge
-      for (const id in parsed){
-        if (!EPG_BY_ID[id]) EPG_BY_ID[id] = parsed[id];
-        else {
-          // merge programmes
-          EPG_BY_ID[id].programmes = EPG_BY_ID[id].programmes.concat(parsed[id].programmes);
-          // dedupe & sort
-          EPG_BY_ID[id].programmes.sort((a,b) => a.start - b.start);
-        }
-      }
-    } catch(e){
-      console.warn("EPG fetch/parse failed for", url, e);
-      // continue with others
-    }
-  }
-
-  // Save cache
-  try {
-    localStorage.setItem(LS_EPG, JSON.stringify(EPG_BY_ID));
-  } catch(e) {
-    console.warn("No se pudo cachear EPG:", e);
-  }
-}
-
-/* Render grid */
-function renderGrid(list){
-  const grid = document.getElementById("grid");
-  grid.innerHTML = "";
-  list.forEach((ch, idx) => {
-    const card = document.createElement("div");
-    card.className = "card";
-    card.dataset.index = idx;
-
-    const thumb = document.createElement("div");
-    thumb.className = "thumb";
-    const img = document.createElement("img");
-    img.src = ch.logo || placeholderLogo;
-    img.alt = ch.name;
-    thumb.appendChild(img);
-
-    const meta = document.createElement("div");
-    meta.className = "meta";
-
-    const nm = document.createElement("div");
-    nm.className = "name";
-    nm.textContent = ch.name;
-
-    const sub = document.createElement("div");
-    sub.className = "sub";
-    sub.textContent = `${ch.group} ${ch.tvgId ? " • " + ch.tvgId : ""}`;
-
-    meta.appendChild(nm);
-    meta.appendChild(sub);
-
-    card.appendChild(thumb);
-    card.appendChild(meta);
-
-    card.addEventListener("click", () => {
-      loadChannel(ch);
-      localStorage.setItem(LS_LAST, JSON.stringify(ch));
     });
 
-    grid.appendChild(card);
-  });
-}
+    await window.player.load(c.url);
+    log("Canal cargado OK.");
 
-/* Filter helper */
-function applyFilter(q){
-  q = (q||"").toLowerCase();
-  const filtered = CHANNELS.filter(c => {
-    return (c.name && c.name.toLowerCase().includes(q))
-      || (c.group && c.group.toLowerCase().includes(q))
-      || (c.tvgId && c.tvgId.toLowerCase().includes(q))
-      || (c.chNumber && String(c.chNumber).includes(q));
-  });
-  renderGrid(filtered);
-}
-
-/* Shaka player loader */
-async function setupShaka(){
-  // shaka polyfills
-  shaka.polyfill.installAll();
-  if (!shaka.Player.isBrowserSupported()) {
-    console.error("Navegador no soportado por Shaka");
+  } catch (e) {
+    console.error(e);
+    log("ERROR al cargar canal: " + e);
   }
 }
 
-/* Load and play channel */
-async function loadChannel(ch){
-  currentChannel = ch;
-  // Destroy existing player to avoid duplicate instances
-  if (currentPlayer){
-    try { currentPlayer.destroy(); } catch(e){}
-    currentPlayer = null;
-  }
-
-  const video = document.getElementById("video");
-  const player = new shaka.Player(video);
-  currentPlayer = player;
-
-  player.addEventListener('error', e => console.error("Shaka error", e));
-
-  // configure DRM ClearKey
-  if (ch.kid && ch.key){
-    const cfg = {
-      drm: {
-        clearKeys: {
-          [ch.kid]: ch.key
-        }
-      }
-    };
-    player.configure(cfg);
-  } else {
-    // no clearkey provided; let Shaka try with server licenses if mpd includes DRM
-    player.configure({ drm: {} });
-  }
-
-  try {
-    await player.load(ch.mpd);
-    console.log("Reproduciendo", ch.name);
-    updateNowNextUI(ch);
-  } catch(e){
-    console.error("Error cargando MPD:", e);
-    alert("Error al cargar el MPD. Revisa consola.");
-  }
-}
-
-/* Update Now / Next UI using EPG and tvg-id */
-function updateNowNextUI(ch){
-  const nowTitle = document.getElementById("nowTitle");
-  const nowTime = document.getElementById("nowTime");
-  const nextTitle = document.getElementById("nextTitle");
-  const nextTime = document.getElementById("nextTime");
-
-  nowTitle.textContent = `Reproduciendo • ${ch.name}`;
-  nowTime.textContent = ch.mpd;
-
-  // Clear UI defaults
-  nextTitle.textContent = "—";
-  nextTime.textContent = "—";
-
-  if (!ch.tvgId) return;
-
-  const epg = EPG_BY_ID[ch.tvgId] || EPG_BY_ID[ch.tvgId.replace(/\s+/g, '')] || null;
-  if (!epg || !epg.programmes || epg.programmes.length === 0) return;
-
-  const now = new Date();
-  const programmes = epg.programmes;
-  let current = null, next = null;
-
-  for (let i = 0; i < programmes.length; i++){
-    const p = programmes[i];
-    if (p.start <= now && now < p.stop) {
-      current = p;
-      next = programmes[i+1] || null;
-      break;
-    }
-    if (p.start > now) {
-      // next upcoming
-      next = p;
-      break;
-    }
-  }
-
-  if (current){
-    nowTitle.textContent = `${current.title}`;
-    nowTime.textContent = formatTimeRange(current.start, current.stop);
-  } else {
-    nowTitle.textContent = "Sin programa ahora";
-    nowTime.textContent = "";
-  }
-
-  if (next){
-    nextTitle.textContent = next.title;
-    nextTime.textContent = formatTimeRange(next.start, next.stop);
-  }
-}
-
-/* Initialize everything */
-async function boot(){
-  await setupShaka();
-
-  // Try to use cached M3U parsed if M3U URL unchanged
-  let parsedObj = null;
-  const cachedM3UText = localStorage.getItem(LS_M3U);
-  try {
-    const resp = await fetch(M3U_URL, { method: "GET", cache: "no-cache" });
-    if (resp.ok) {
-      const remoteText = await resp.text();
-      if (cachedM3UText && cachedM3UText === remoteText){
-        // use cached parsed channels if present
-        const cachedParsed = localStorage.getItem(LS_M3U_PARSED);
-        if (cachedParsed){
-          parsedObj = JSON.parse(cachedParsed);
-        } else {
-          parsedObj = parseM3UText(remoteText);
-          localStorage.setItem(LS_M3U_PARSED, JSON.stringify(parsedObj));
-        }
-      } else {
-        // remote changed or no cache
-        parsedObj = parseM3UText(remoteText);
-        localStorage.setItem(LS_M3U, remoteText);
-        localStorage.setItem(LS_M3U_PARSED, JSON.stringify(parsedObj));
-      }
-    } else {
-      // remote fetch failed -> fallback to cached parse
-      if (localStorage.getItem(LS_M3U_PARSED)){
-        parsedObj = JSON.parse(localStorage.getItem(LS_M3U_PARSED));
-      } else {
-        throw new Error("No hay M3U disponible");
-      }
-    }
-  } catch(e){
-    console.warn("Error al leer M3U remoto, intentando cache...", e);
-    if (localStorage.getItem(LS_M3U_PARSED)){
-      parsedObj = JSON.parse(localStorage.getItem(LS_M3U_PARSED));
-    } else {
-      try {
-        const text = await fetchTextMaybeCached(M3U_URL, LS_M3U);
-        parsedObj = parseM3UText(text);
-        localStorage.setItem(LS_M3U_PARSED, JSON.stringify(parsedObj));
-      } catch(err){
-        console.error("No pude obtener M3U", err);
-        alert("No pude obtener la lista M3U. Revisa la URL en la variable M3U_URL.");
-        return;
-      }
-    }
-  }
-
-  CHANNELS = parsedObj.channels || [];
-  const epgUrls = parsedObj.epg_urls || [];
-
-  // load EPGs (try cached first inside function)
-  if (epgUrls.length) {
-    document.getElementById("lastUpdate").textContent = "cargando EPG...";
-    await loadAndParseEPG(epgUrls);
-    document.getElementById("lastUpdate").textContent = new Date().toLocaleString();
-  } else {
-    document.getElementById("lastUpdate").textContent = "sin EPG";
-  }
-
-  renderGrid(CHANNELS);
-
-  // Setup search
-  const filter = document.getElementById("filter");
-  filter.addEventListener("input", (e) => applyFilter(e.target.value));
-
-  // Buttons
-  document.getElementById("refreshBtn").addEventListener("click", async () => {
-    // force refresh: clear caches stored
-    localStorage.removeItem(LS_M3U);
-    localStorage.removeItem(LS_M3U_PARSED);
-    localStorage.removeItem(LS_EPG);
-    location.reload();
-  });
-  document.getElementById("stopBtn").addEventListener("click", () => {
-    if (currentPlayer){
-      try { currentPlayer.pause(); } catch(e){}
-      const v = document.getElementById("video"); v.pause();
-    }
-  });
-  document.getElementById("rememberBtn").addEventListener("click", () => {
-    const last = localStorage.getItem(LS_LAST);
-    if (last){
-      const ch = JSON.parse(last);
-      loadChannel(ch);
-    } else alert("No hay canal recordado.");
-  });
-
-  // Auto-load last channel if any
-  const lastCh = localStorage.getItem(LS_LAST);
-  if (lastCh){
-    try {
-      const ch = JSON.parse(lastCh);
-      // find matching channel in current CHANNELS by mpd or tvgId
-      const found = CHANNELS.find(c => c.mpd === ch.mpd || (c.tvgId && ch.tvgId && c.tvgId === ch.tvgId));
-      if (found) loadChannel(found);
-    } catch(e){}
-  }
-}
-
-/* Start */
-document.addEventListener("DOMContentLoaded", boot);
+cargarM3U();
 </script>
 </body>
 </html>
