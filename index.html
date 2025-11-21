@@ -1,488 +1,84 @@
-<!doctype html>
-
-<html lang="es">
+<!DOCTYPE html>
+<html>
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Shaka DASH Encrypted — Player + Grid + Cast</title>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.12.0/ui.css" />
-  <style>
-    :root{font-family:Inter,system-ui,Arial,Helvetica,sans-serif}
-    body{margin:0;padding:0;display:flex;flex-direction:column;min-height:100vh}
-    header{display:flex;align-items:center;gap:12px;padding:10px 16px;background:#0b1220;color:#fff}
-    header img.logo{height:36px}
-    header h1{font-size:1.05rem;margin:0}
-    main{display:grid;grid-template-columns:1fr 380px;gap:12px;padding:12px}
-    /* left: grid of channels */
-    #grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px}
-    .card{background:#fff;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.08);overflow:hidden;cursor:pointer}
-    .card .thumb{height:90px;background:#f3f3f3;display:flex;align-items:center;justify-content:center}
-    .card img{max-width:100%;max-height:100%}
-    .card .meta{padding:8px}
-    .card .meta .title{font-weight:600;font-size:.95rem}
-    .card .meta .sub{font-size:.82rem;color:#666}/* right: player area */
-#player-area{display:flex;flex-direction:column;gap:8px}
-#video-container{position:relative;background:#000;border-radius:8px;overflow:hidden}
-video{width:100%;height:360px;display:block;background:#000}
-#controls{display:flex;gap:8px;align-items:center;padding:6px}
-#info{font-size:0.9rem}
-.cast-btn{margin-left:auto}
-/* small responsive */
-@media (max-width:900px){main{grid-template-columns:1fr;}
-  video{height:240px}}
+  <meta charset="utf-8">
+  <title>Test Shaka + Cast + ClearKey</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.12.3/shaka-player.ui.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.12.3/controls.min.css">
 
+  <!-- Google Cast Framework -->
+  <script type="text/javascript"
+    src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
+
+  <style>
+    body { background: #111; color: white; font-family: sans-serif; margin: 0; }
+    #video-container { width: 100%; height: 70vh; }
+    #cast-button { margin: 20px; }
   </style>
 </head>
 <body>
-  <header>
-    <img class="logo" src="https://raw.githubusercontent.com/shaka-project/shaka-player/main/logo/shaka-full.svg" alt="Shaka">
-    <h1>Shaka DASH Encrypted — Grid + Cast</h1>
-  </header>  <main>
-    <section>
-      <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center">
-        <input id="m3u-url" style="flex:1;padding:8px;border-radius:6px;border:1px solid #ccc" placeholder="Pegar URL de M3U aquí (o dejar vacío para usar el ejemplo)">
-        <button id="load-m3u">Cargar</button>
-        <button id="use-example">Usar ejemplo</button>
-      </div>
-      <div id="grid"></div>
-    </section><aside id="player-area">
+
+  <h2 style="margin:20px;">Test Shaka + Chromecast + ClearKey</h2>
+
+  <!-- Botón Cast visible SIEMPRE -->
+  <google-cast-launcher id="cast-button" style="width:48px; height:48px;"></google-cast-launcher>
+
+  <!-- Contenedor Shaka -->
   <div id="video-container">
-    <video id="video" playsinline controls></video>
-    <!-- Shaka UI will attach here when needed -->
+    <video id="video" autoplay></video>
   </div>
-  <div id="controls">
-    <div id="info">Ningún canal seleccionado</div>
-    <button id="cast-button" class="cast-btn">Cast</button>
-  </div>
-  <div id="log" style="font-size:0.85rem;color:#333"></div>
-</aside>
 
-  </main>  <!-- Shaka Player & UI -->  <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.12.0/shaka-player.compiled.js"></script>  <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.12.0/ui.js"></script>  <!-- Google Cast JS SDK (sender) -->  <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>  <script>
-  // --- Helpers ---
-  function log(msg){const el=document.getElementById('log');el.textContent = (new Date()).toLocaleTimeString() + ' — ' + msg}
+<script>
+  document.addEventListener('DOMContentLoaded', initApp);
 
-  // hex -> base64url (for ClearKey mapping)
-  function hexToBase64Url(hex){
-    const bytes = new Uint8Array(hex.match(/.{1,2}/g).map(b=>parseInt(b,16)));
-    let str = '';
-    for (let i=0;i<bytes.length;i++) str += String.fromCharCode(bytes[i]);
-    const b64 = btoa(str);
-    // convert to base64url
-    return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/,'');
-  }
+  async function initApp() {
+    // Asegura compatibilidad antes de iniciar
+    await shaka.polyfill.installAll();
 
-  // Simple M3U parser (reads KODIPROP and EXTINF lines)
-  function parseM3U(text){
-    const lines = text.split(/\r?\n/).map(l=>l.trim()).filter(l=>l.length>0);
-    const result=[];
-    let current={};
-    for (let i=0;i<lines.length;i++){
-      const L = lines[i];
-      if (L.startsWith('#KODIPROP:')){
-        // format #KODIPROP:key=value
-        const prop = L.slice('#KODIPROP:'.length);
-        const [k,v] = prop.split('=');
-        current['kodiprop'] = current['kodiprop'] || {};
-        current['kodiprop'][k.trim()] = v ? v.trim() : '';
-        continue;
-      }
-      if (L.startsWith('#EXTINF')){
-        // parse attributes
-        const attrs = {};
-        const attrText = L.replace('#EXTINF:','');
-        // split attributes before the last comma which precedes the display name
-        const lastComma = attrText.lastIndexOf(',');
-        const meta = attrText.slice(0,lastComma);
-        const display = attrText.slice(lastComma+1);
-        // regex attr="..."
-        const regex = /(\w+?)=\"(.*?)\"/g;
-        let m;
-        while ((m = regex.exec(meta)) !== null){attrs[m[1]] = m[2];}
-        current = {attrs,display};
-        continue;
-      }
-      if (!L.startsWith('#')){
-        // URL line
-        if (current && (current.url===undefined)){
-          current.url = L;
-          result.push(current);
-          current = {};
-        }
-      }
-    }
-    return result;
-  }
-
-  // Build grid UI
-  function buildGrid(channels){
-    const grid = document.getElementById('grid'); grid.innerHTML='';
-    channels.forEach((ch,idx)=>{
-      const card = document.createElement('div'); card.className='card';
-      card.tabIndex=0;
-      const thumb = document.createElement('div'); thumb.className='thumb';
-      const img = document.createElement('img');
-      img.src = ch.attrs && ch.attrs['tvg-logo'] ? ch.attrs['tvg-logo'] : 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="300" height="90"><rect fill="%23eee" width="100%" height="100%"/></svg>';
-      thumb.appendChild(img);
-      const meta = document.createElement('div'); meta.className='meta';
-      const title = document.createElement('div'); title.className='title'; title.textContent = ch.attrs && ch.attrs['tvg-name'] ? ch.attrs['tvg-name'] : ch.display || 'Canal';
-      const sub = document.createElement('div'); sub.className='sub'; sub.textContent = ch.attrs && ch.attrs['group-title'] ? ch.attrs['group-title'] : (ch.attrs && ch.attrs['type'] ? ch.attrs['type'] : '');
-      meta.appendChild(title); meta.appendChild(sub);
-      card.appendChild(thumb); card.appendChild(meta);
-      card.addEventListener('click',()=> loadChannel(ch));
-      grid.appendChild(card);
-    });
-  }
-
-  // Player + Shaka setup
-  let player, ui;
-  async function initShaka(){
-    shaka.polyfill.installAll();
-    if (!shaka.Player.isBrowserSupported()){
-      alert('Navegador no soportado por Shaka Player');
+    if (!shaka.Player.isBrowserSupported()) {
+      console.error("Shaka: Browser no soportado");
       return;
     }
+
     const video = document.getElementById('video');
-    player = new shaka.Player(video);
-    window.player = player;
-    player.addEventListener('error', onErrorEvent);
+    const container = document.getElementById('video-container');
 
-    // UI (optional): attach minimal UI
-    const uiContainer = document.createElement('div'); uiContainer.style.position='absolute'; uiContainer.style.bottom='8px'; uiContainer.style.left='8px'; uiContainer.style.right='8px'; uiContainer.style.pointerEvents='none';
-    document.getElementById('video-container').appendChild(uiContainer);
+    // Inicializa UI
+    const ui = new shaka.ui.Overlay(
+      new shaka.Player(video),
+      container,
+      video
+    );
 
-    // Try to hook Cast (sender) integration using cast.framework
-    setupCastSender();
-  }
+    const player = ui.getControls().getPlayer();
 
-  function onErrorEvent(event){
-    const err = event.detail || event;
-    console.error('Shaka error',err);
-    log('Shaka error: ' + JSON.stringify(err));
-  }
+    // DASH con ClearKey — modificalo por tu MPD real
+    const manifestUri = "https://storage.googleapis.com/shaka-demo-assets/angel-one/dash.mpd";
 
-  // Load a channel (parsed M3U entry)
-  async function loadChannel(ch){
-    const info = document.getElementById('info');
-    info.textContent = (ch.attrs && ch.attrs['tvg-name']?ch.attrs['tvg-name']:ch.display) + ' — cargando...';
-    log('Cargando URL: ' + ch.url);
-
-    // Configure DRM if Kodi props declare them
-    try{
-      // Clear previous config
-      player.configure({drm:{}});
-      const kodiprop = ch.kodiprop || {};
-      if (kodiprop['inputstream.adaptive.license_type'] && kodiprop['inputstream.adaptive.license_type'].toLowerCase().includes('clearkey')){
-        // license_key format expected: keyId:key (hex:hex) or multiple pairs separated by comma
-        const lk = kodiprop['inputstream.adaptive.license_key'];
-        if (lk){
-          const map = {};
-          // support multiple pairs separated by commas
-          lk.split(',').forEach(pair => {
-            const [kid, key] = pair.split(':').map(s=>s.trim());
-            if (kid && key){
-              map[ hexToBase64Url(kid) ] = hexToBase64Url(key);
-            }
-          });
-          if (Object.keys(map).length>0){
-            player.configure('drm.clearKeys', map);
-            log('Configured ClearKeys for player');
-          }
+    const clearKeyConfig = {
+      drm: {
+        clearKeys: {
+          // keyId:key (hex)
+          "1ae8ccd0e84f4e56be4e9fddf2b0f0a0":
+          "d0d1c4d19da1c0e3f3f9a9f37d59c10c"
         }
-      } else if (kodiprop['inputstream.adaptive.license_type']){
-        // other DRM types: we assume license URL would be provided elsewhere; this requires license server
-        log('Detected DRM type: ' + kodiprop['inputstream.adaptive.license_type'] + '. Ensure license server URL is available.');
       }
+    };
 
-      await player.load(ch.url);
-      info.textContent = (ch.attrs && ch.attrs['tvg-name']?ch.attrs['tvg-name']:ch.display) + ' — reproduciendo';
-      log('Reproduciendo');
+    player.configure(clearKeyConfig);
 
-    }catch(err){
-      console.error(err);
-      log('Error cargando reproducción: ' + (err.message || JSON.stringify(err)));
-      document.getElementById('info').textContent = 'Error al reproducir';
+    try {
+      await player.load(manifestUri);
+      console.log("Listo: Reproduciendo.");
+    } catch (e) {
+      console.error("Error cargando MPD:", e);
     }
-  }
 
-  // Cast sender setup (basic)
-  function setupCastSender(){
-    // This is a minimal sender integration. For encrypted DASH, the receiver must be able to handle DASH + DRM (Shaka receiver or custom receiver).
-    if (!window.cast || !window.cast.framework){
-      log('Cast framework no disponible en este entorno');
-      return;
-    }
-    const context = cast.framework.CastContext.getInstance();
-    // use default media receiver; for Shaka + DRM you will likely need a custom receiver
-    context.setOptions({receiverApplicationId: chrome.cast.media.DEFAULT_MEDIA_RECEIVER_APP_ID, autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED});
-
-    const castBtn = document.getElementById('cast-button');
-    castBtn.addEventListener('click', async ()=>{
-      try{
-        const session = context.getCurrentSession() || await context.requestSession();
-        if (!player) return log('Player no inicializado');
-        const mediaInfo = new chrome.cast.media.MediaInfo(player.getManifestUri ? player.getManifestUri() : '', 'application/dash+xml');
-        mediaInfo.metadata = new chrome.cast.media.GenericMediaMetadata();
-        mediaInfo.metadata.title = document.getElementById('info').textContent || 'Stream';
-        // DRM info + custom data may be required for receiver to obtain license; sending clearKeys via customData is possible but insecure
-        const request = new chrome.cast.media.LoadRequest(mediaInfo);
-        session.loadMedia(request).then(()=> log('Loaded on cast receiver'), e=> log('Error cargando en receiver: '+ e.message));
-      }catch(e){
-        console.error(e); log('Error iniciando cast: ' + (e.message || e));
-      }
+    // Fuerza que el botón Cast aparezca siempre
+    cast.framework.CastContext.getInstance().setOptions({
+      receiverApplicationId: chrome.cast.media.DEFAULT_MEDIA_RECEIVER_APP_ID
     });
   }
-
-  // Fetch remote M3U and handle CORS & errors
-  async function fetchAndBuild(url){
-    try{
-      log('Fetching M3U from ' + url);
-      const r = await fetch(url);
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      const txt = await r.text();
-      const parsed = parseM3U(txt);
-      if (parsed.length===0) log('No se detectaron entradas en M3U');
-      buildGrid(parsed);
-      log('M3U parseado: ' + parsed.length + ' items');
-    }catch(e){
-      console.error(e);
-      log('Error fetching M3U: ' + (e.message||e));
-      // Common causes: CORS, blocked by server, invalid URL, expires, geo-block
-      alert('No se pudo obtener el archivo M3U. Revisa CORS, la URL o usa un proxy. Error: ' + (e.message||e));
-    }
-  }
-
-  // Example M3U (from user) — can be replaced by fetching remote
-  const exampleM3U = `#EXTM3U  url-tvg="https://www.open-epg.com/files/argentina4.xml.gz,https://www.open-epg.com/files/uruguay2.xml.gz,https://albaforge.com/bin-cas6u/epg/an/EPG/ARGENTINA.xml.gz,https://www.open-epg.com/files/argentina1.xml.gz"
-#KODIPROP:inputstream.adaptive.license_type=org.w3.clearkey
-#KODIPROP:inputstream.adaptive.license_key=cc8c82ac2ec7e9799527c29db7354e81:cc4aae173dd2ef17ae26be3f7ae87662
-#EXTINF:-1 tvg-id="TV Pública.ar" tvg-name="TV Pública.ar" tvg-logo="https://github.com/masterentertainment/listas/blob/main/logos/C7TVP.png?raw=true" group-title="Argentina" ch-number="7" type="channel",TV Pública
-https://cdn.cvattv.com.ar/live/c6eds/Canal7/SA_Live_dash_enc/Canal7.mpd`;
-
-  // --- Events ---
-  document.getElementById('use-example').addEventListener('click', ()=>{
-    const parsed = parseM3U(exampleM3U);
-    buildGrid(parsed);
-    log('Grid creado usando ejemplo incorporado');
-  });
-  document.getElementById('load-m3u').addEventListener('click', ()=>{
-    const url = document.getElementById('m3u-url').value.trim();
-    if (!url) return alert('Pega la URL del M3U');
-    fetchAndBuild(url);
-  });
-
-  // Init
-  initShaka();
-  // auto-load example for convenience
-  (function(){ const parsed = parseM3U(exampleM3U); buildGrid(parsed); })();
-
-  </script></body>
-  </html>      context.addEventListener(cast.framework.CastContextEventType.SESSION_STATE_CHANGED, (evt) => {
-        const btn = document.getElementById('castBtn');
-        if (evt.sessionState === cast.framework.SessionState.SESSION_STARTED ||
-            evt.sessionState === cast.framework.SessionState.SESSION_RESUMED) {
-          btn.classList.add('casting');
-          btn.innerText = "Cast: conectado";
-          log("Sesión Cast iniciada/resumida.");
-        } else {
-          btn.classList.remove('casting');
-          btn.innerText = "Cast";
-          log("Sesión Cast no activa.");
-        }
-      });
-    } else {
-      log("Cast framework no disponible en este navegador.");
-    }
-
-  } catch(err) {
-    log("Error inicializando Shaka: " + err);
-  }
-});
-
-/* ----------------- M3U PARSER ----------------- */
-document.getElementById('loadBtn').addEventListener('click', loadM3U);
-async function loadM3U(){
-  log("Cargando M3U desde: " + M3U_URL);
-  try {
-    const res = await fetch(M3U_URL);
-    if(!res.ok) throw new Error("HTTP " + res.status);
-    const txt = await res.text();
-    channels = parseM3U(txt);
-    renderChannelOptions(channels);
-    log(`M3U parseado — ${channels.length} canales encontrados.`);
-  } catch(e) {
-    log("Error cargando/parsing M3U: " + e);
-  }
-}
-
-function parseM3U(txt){
-  const lines = txt.split(/\r?\n/);
-  const out = [];
-  let cur = null;
-
-  for (let raw of lines){
-    const line = raw.trim();
-    if(!line) continue;
-
-    if (line.startsWith("#EXTINF:")) {
-      const name = line.split(",").pop().trim();
-      const logo = (line.match(/tvg-logo="([^"]+)"/)||[])[1] || "";
-      cur = { name, logo, url: "", license: null };
-    } else if (line.includes("license_key=") && cur) {
-      const rawKey = line.split("license_key=")[1].trim();
-      const [kid, key] = rawKey.split(":");
-      if (kid && key) cur.license = { [kid]: key };
-    } else if (!line.startsWith("#") && cur) {
-      cur.url = line;
-      out.push(cur);
-      cur = null;
-    }
-  }
-  return out;
-}
-
-function renderChannelOptions(list){
-  const sel = document.getElementById('canales');
-  sel.innerHTML = "";
-  list.forEach((ch, i) => {
-    const opt = document.createElement('option');
-    opt.value = i;
-    opt.text = `${ch.name} ${ch.license ? '[DRM]' : ''}`;
-    sel.appendChild(opt);
-  });
-}
-
-/* ----------------- REPRODUCCION LOCAL vs CAST ----------------- */
-document.getElementById('playBtn').addEventListener('click', playSelected);
-
-async function playSelected(){
-  const sel = document.getElementById('canales');
-  const idx = parseInt(sel.value, 10);
-  if (isNaN(idx) || !channels[idx]) { log("Seleccioná un canal válido."); return; }
-  const ch = channels[idx];
-  log("Reproduciendo: " + ch.name + " → " + ch.url);
-
-  // Configurar DRM ClearKey si existe
-  const drmConfig = ch.license ? { clearKeys: ch.license } : { clearKeys: {} };
-
-  try {
-    // Si hay sesión Cast activa y tenemos proxy, intentar reproducir en Chromecast vía proxy
-    const context = (window.cast && cast.framework) ? cast.framework.CastContext.getInstance() : null;
-    const session = context ? context.getCurrentSession() : null;
-    const isCasting = !!(session && session.getSessionId());
-
-    if (isCasting && shakaCastProxy && typeof shakaCastProxy.getPlayer === 'function') {
-      log("Sesión Cast detectada — intentando reproducir vía CastProxy (transfiriendo claves).");
-      // Configuramos el player del proxy y lo cargamos para el cast
-      const castPlayer = shakaCastProxy.getPlayer();
-      castPlayer.configure({ drm: drmConfig });
-
-      try {
-        await castPlayer.unload();
-      } catch(e){ /* ignore */ }
-
-      // Cargar en el receptor (CastProxy usa internals para transferir claves)
-      await castPlayer.load(ch.url);
-      log("Carga iniciada en Chromecast vía CastProxy.");
-      return;
-    }
-
-    // Si no está casteando o no existe proxy: reproducir localmente en PC
-    shakaPlayer.configure({ drm: drmConfig });
-    await shakaPlayer.unload();
-    await shakaPlayer.load(ch.url);
-    log("Reproducción local iniciada correctamente.");
-
-  } catch (err) {
-    // Mostrar detalle y posible razón (ej. codecs no soportados)
-    if (err && err.code) {
-      log(`Shaka error code: ${err.code} — ${err.message || ''}`);
-    } else {
-      log("Error reproducir: " + (err && err.toString ? err.toString() : JSON.stringify(err)));
-    }
-
-    // Diagnóstico adicional: detectar soporte de codecs si es aplicable
-    try {
-      const manifestUrl = ch.url;
-      if (manifestUrl && manifestUrl.endsWith('.mpd')) {
-        await probeMPDForCodecs(manifestUrl);
-      }
-    } catch(e) {
-      // ignore
-    }
-  }
-}
-
-/* ----------------- BOTON CAST (siempre visible) ----------------- */
-document.getElementById('castBtn').addEventListener('click', async () => {
-  try {
-    if (!(window.cast && cast.framework)) {
-      log("Cast SDK no disponible en este navegador.");
-      return;
-    }
-    const ctx = cast.framework.CastContext.getInstance();
-    const session = ctx.getCurrentSession();
-    if (!session) {
-      log("Solicitando sesión Cast...");
-      await ctx.requestSession(); // abrir diálogo de dispositivos
-      // la actualización del botón será manejada por el listener SESSION_STATE_CHANGED
-    } else {
-      log("Sesión Cast ya activa (terminando sesión).");
-      session.endSession(true);
-    }
-  } catch(e){
-    log("Error en requestSession: " + e);
-  }
-});
-
-/* ----------------- DIAGNOSTICO: Extraer códecs del MPD (simple) ----------------- */
-async function probeMPDForCodecs(mpdUrl){
-  log("Probing MPD para codecs: " + mpdUrl);
-  try {
-    const r = await fetch(mpdUrl);
-    if (!r.ok) { log("No se pudo descargar MPD: HTTP " + r.status); return; }
-    const txt = await r.text();
-    // buscar codecs en <Representation ... codec="..."> o codec="..."
-    const codecMatches = [...txt.matchAll(/codecs="([^"]+)"/g)].map(m => m[1]);
-    const uniq = Array.from(new Set(codecMatches));
-    log("Codecs encontrados en MPD: " + (uniq.length ? uniq.join(", ") : "ninguno detectado"));
-    // probar MediaCapabilities si existe (en browsers compatibles)
-    if (navigator.mediaCapabilities && uniq.length) {
-      for (const codecs of uniq) {
-        const parts = codecs.split(',');
-        const videoCodec = parts.find(p => p.includes('avc')||p.includes('vp')||p.includes('hev')||p.includes('av1')) || parts[0];
-        const audioCodec = parts.find(p => p.includes('mp4a')||p.includes('mp3')||p.includes('opus')) || '';
-        const mediaConfig = {
-          type: 'file',
-          audio: audioCodec ? { contentType: `audio/mp4; codecs="${audioCodec}"` } : undefined,
-          video: { contentType: `video/mp4; codecs="${videoCodec}"`, width: 1920, height: 1080, bitrate: 5000000, framerate: 30 }
-        };
-        try {
-          // mediaCapabilities.decodingInfo may help en Chrome
-          if (navigator.mediaCapabilities && navigator.mediaCapabilities.decodingInfo) {
-            const info = await navigator.mediaCapabilities.decodingInfo(mediaConfig);
-            log(`MediaCapabilities - video ${videoCodec} supported: ${info.supported}, smooth:${info.smooth}, powerEfficient:${info.powerEfficient}`);
-          }
-        } catch(e){
-          // no todos los navegadores soportan mediaCapabilities para ese tipo
-          log("mediaCapabilities check falló: " + e);
-        }
-      }
-    }
-  } catch(e){
-    log("Error probing MPD: " + e);
-  }
-}
-
-/* ----------------- Helper: isCasting (opcional) ----------------- */
-function isCastActive(){
-  try {
-    if (window.cast && cast.framework) {
-      const s = cast.framework.CastContext.getInstance().getCurrentSession();
-      return !!(s && s.getSessionId && s.getSessionId());
-    }
-  } catch(e){}
-  return false;
-}
 </script>
 </body>
 </html>
