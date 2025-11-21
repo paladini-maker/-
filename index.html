@@ -248,17 +248,21 @@ async function initApp() {
  */
 async function initPlayer() {
   const video = document.getElementById('video');
-  const videoContainer = document.getElementById('video-container');
+  const container = document.getElementById('video-container');
 
-  // Crear la instancia REAL del player
-  const player = new shaka.Player(video);
+  // Crear player SIN mediaElement (nuevo método desde Shaka 4.0)
+  const player = new shaka.Player();
 
-  // Crear UI Overlay correctamente: (player, video, container)
-  const ui = new shaka.ui.Overlay(player, video, videoContainer);
+  // Adjuntar video manualmente: obligatorio para evitar el error "buffered undefined"
+  await player.attach(video);
+
+  // Crear UI Overlay en orden correcto (player, video, container)
+  const ui = new shaka.ui.Overlay(player, video, container);
   const controls = ui.getControls();
   playerInstance = player;
 
-  const uiConfig = {
+  // UI config
+  ui.configure({
     controlPanelElements: [
       'play_pause',
       'time_and_duration',
@@ -268,24 +272,25 @@ async function initPlayer() {
       'fullscreen',
       'overflow_menu'
     ],
-    overflowMenuButtons: ['cast', 'quality', 'language', 'playback_rate', 'picture_in_picture'],
-    seekBarColors: {
-      base: 'rgba(255, 255, 255, 0.3)',
-      buffered: 'rgba(255, 255, 255, 0.54)',
-      played: 'rgb(25, 118, 210)'
-    },
+    overflowMenuButtons: [
+      'cast',
+      'quality',
+      'language',
+      'playback_rate',
+      'picture_in_picture'
+    ],
     castReceiverAppId: 'CC1AD845'
-  };
-
-  ui.configure(uiConfig);
-
-  player.addEventListener('error', (event) => {
-    const { code, message } = event.detail;
-    log(`ERROR PLAYER ${code}: ${message}`);
   });
 
-  log('Shaka Player 4.12.6 + UI + Cast inicializado.');
+  // Errores
+  player.addEventListener('error', (e) => {
+    const err = e.detail;
+    log(`ERROR ${err.code}: ${err.message}`);
+  });
+
+  log('Shaka Player 4.12 + UI + Cast inicializado correctamente.');
 }
+
 
 /**
  * LÓGICA DE M3U Y DRM
