@@ -250,14 +250,14 @@ async function initPlayer() {
   const video = document.getElementById('video');
   const videoContainer = document.getElementById('video-container');
 
-  // Crear la UI Overlay. Esto configura automáticamente los controles y el botón de Cast.
-  // Nota: En versiones recientes, Shaka busca automáticamente el elemento con data-shaka-player-container,
-  // pero hacerlo manualmente garantiza el control.
-  const ui = new shaka.ui.Overlay(shaka.Player, videoContainer, video);
-  const controls = ui.getControls();
-  playerInstance = controls.getPlayer();
+  // Crear la instancia REAL del player
+  const player = new shaka.Player(video);
 
-  // Configuración de la Interfaz (Botones visibles)
+  // Crear UI Overlay correctamente: (player, video, container)
+  const ui = new shaka.ui.Overlay(player, video, videoContainer);
+  const controls = ui.getControls();
+  playerInstance = player;
+
   const uiConfig = {
     controlPanelElements: [
       'play_pause',
@@ -266,28 +266,25 @@ async function initPlayer() {
       'mute',
       'volume',
       'fullscreen',
-      'overflow_menu' // Menú de 3 puntos
+      'overflow_menu'
     ],
     overflowMenuButtons: ['cast', 'quality', 'language', 'playback_rate', 'picture_in_picture'],
     seekBarColors: {
       base: 'rgba(255, 255, 255, 0.3)',
       buffered: 'rgba(255, 255, 255, 0.54)',
-      played: 'rgb(25, 118, 210)' // Azul Material
+      played: 'rgb(25, 118, 210)'
     },
-    // ID de aplicación de Cast. El predeterminado de Shaka es bueno, 
-    // pero puedes poner tu propio App ID registrado en Google Cast SDK Console.
-    castReceiverAppId: 'CC1AD845' 
+    castReceiverAppId: 'CC1AD845'
   };
 
   ui.configure(uiConfig);
 
-  // Listeners de Errores
-  playerInstance.addEventListener('error', (event) => {
+  player.addEventListener('error', (event) => {
     const { code, message } = event.detail;
     log(`ERROR PLAYER ${code}: ${message}`);
   });
 
-  log('Shaka Player 4.12.6 + UI inicializado.');
+  log('Shaka Player 4.12.6 + UI + Cast inicializado.');
 }
 
 /**
