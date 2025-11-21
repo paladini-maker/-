@@ -2,121 +2,152 @@
 <html lang="es">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Shaka Android Cast</title>
-
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.12.3/controls.min.css">
-
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.12.3/shaka-player.ui.min.js"></script>
-
-  <!-- Cast sender + namespace obligatorio -->
-  <script src="https://www.gstatic.com/cast/sdk/libs/sender/1.0/cast_sender.js"></script>
+  <title>Canales + Shaka + Chromecast</title>
+  <!-- Shaka Player con UI -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.0.0/shaka-player.ui.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.0.0/controls.min.css"/>
+  <!-- Google Cast Sender SDK -->
   <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
 
   <style>
-    body {
-      background: #000;
-      color: #fff;
-      font-family: sans-serif;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding-top: 20px;
-      margin: 0;
-    }
-
-    .cast-wrapper {
-      margin: 20px 0;
-      display: flex;
-      justify-content: center;
-      width: 100%;
-    }
-
-    google-cast-launcher {
-      width: 60px;
-      height: 60px;
-      cursor: pointer;
-      --connected-color: #4285f4;
-      --disconnected-color: #fff;
-    }
-
-    #video-container {
-      width: 100%;
-      max-width: 800px;
-    }
+    body { font-family: sans-serif; margin: 20px; }
+    #channels { margin-bottom: 20px; }
+    #channels button { display: block; margin: 4px 0; padding: 8px; }
+    #videoContainer { max-width: 640px; margin: auto; }
   </style>
 </head>
-
 <body>
+  <h1>Selecciona un canal</h1>
+  <div id="channels">Cargando canales…</div>
 
-<h3>Test Android + Cast + ClearKey</h3>
+  <div id="videoContainer"
+       data-shaka-player-container
+       data-shaka-player-cast-receiver-id="CC1AD845">
+    <video id="video" width="640" controls autoplay data-shaka-player></video>
+  </div>
 
-<div class="cast-wrapper">
-  <google-cast-launcher></google-cast-launcher>
-</div>
+  <script>
+    document.addEventListener('DOMContentLoaded', initApp);
 
-<div id="video-container">
-  <video id="video" poster="//shaka-player-demo.appspot.com/assets/poster.jpg"></video>
-</div>
+    async function initApp(){
+      shaka.polyfill.installAll();
+      if (!shaka.Player.isBrowserSupported()) {
+        console.error('Browser no soportado');
+        return;
+      }
 
-<script>
-  const MANIFEST_URI =
-    "https://cdn.cvattv.com.ar/live/c6eds/Canal7/SA_Live_dash_enc/Canal7.mpd";
+      const video = document.getElementById('video');
+      const ui = video.ui;  // la UI Library inicializa automáticamente
+      const controls = ui.getControls();
+      const player = controls.getPlayer();
 
-  const RECEIVER_APP_ID = "07AEE832"; // Shaka Demo Receiver
+      player.addEventListener('error', onErrorEvent);
+      controls.addEventListener('error', onErrorEvent);
 
-  const drmConfig = {
-    drm: {
-      clearKeys: {
-        "cc8c82ac2ec7e9799527c29db7354e81": "cc4aae173dd2ef17ae26be3f7ae87662"
+      // Cargar lista .m3u con metadatos KODIPROP
+      try {
+        const resp = await fetch('https://raw.githubusercontent.com/paladini-maker/-/refs/heads/main/002.m3u');
+        const text = await resp.text();
+        const channels = parseM3UWithKodiprop(text);
+        buildChannelList(channels, player);
+      } catch(e) {
+        console.error('Error cargando lista de canales', e);
+        document.getElementById('channels').textContent = 'No se pudo cargar la lista de canales.';
       }
     }
-  };
 
-  // 🔥 Inicializar Cast apenas está disponible
-  window["__onGCastApiAvailable"] = function(isAvailable) {
-    if (!isAvailable) return;
+    function parseM3UWithKodiprop(text) {
+      const lines = text.split('\n');
+      const entries = [];
+      let curr = null;
 
-    const context = cast.framework.CastContext.getInstance();
-    context.setOptions({
-      receiverApplicationId: RECEIVER_APP_ID,
-      autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
-    });
+      for (let raw of lines) {
+        const line = raw.trim();
+        if (!line) continue;
 
-    initPlayer(); // Recién después armamos Shaka
-  };
-
-  async function initPlayer() {
-    shaka.polyfill.installAll();
-
-    const video = document.getElementById("video");
-    const container = document.getElementById("video-container");
-    const player = new shaka.Player(video);
-
-    // Proxy Cast (importante para sincronizar local/remote)
-    const castProxy = new shaka.cast.CastProxy(video, player, RECEIVER_APP_ID);
-
-    const ui = new shaka.ui.Overlay(player, container, video);
-    ui.configure({
-      controlPanelElements: [
-        "play_pause",
-        "time_and_duration",
-        "spacer",
-        "mute",
-        "fullscreen"
-      ],
-      overflowMenuButtons: ["quality", "language"]
-    });
-
-    player.configure(drmConfig);
-
-    try {
-      await player.load(MANIFEST_URI);
-      console.log("Reproduciendo OK");
-    } catch (e) {
-      console.error("Error cargando:", e);
+        if (line.startsWith('#EXTINF:')) {
+          const parts = line.split(',');
+          curr = {
+            title: (parts[1] || 'Sin título').trim(),
+            url: null,
+            kodiprops: {}
+          };
+        } else if (line.startsWith('#KODIPROP:') && curr) {
+          const kv = line.substring('#KODIPROP:'.length).trim();
+          const eq = kv.indexOf('=');
+          if (eq >= 0) {
+            const key = kv.substring(0, eq).trim();
+            const value = kv.substring(eq+1).trim();
+            curr.kodiprops[key] = value;
+          }
+        } else if (!line.startsWith('#') && curr) {
+          curr.url = line;
+          entries.push(curr);
+          curr = null;
+        }
+      }
+      return entries;
     }
-  }
-</script>
+
+    function buildChannelList(channels, player) {
+      const div = document.getElementById('channels');
+      div.innerHTML = '';
+      channels.forEach(ch => {
+        const btn = document.createElement('button');
+        btn.textContent = ch.title;
+        btn.onclick = () => {
+          console.log('Seleccionado canal:', ch.title, ch.url, ch.kodiprops);
+          configureAndLoad(player, ch);
+        };
+        div.appendChild(btn);
+      });
+    }
+
+    async function configureAndLoad(player, channel) {
+      // Reset config a base
+      player.configure({
+        drm: {
+          clearKeys: {},
+          servers: {}
+        }
+      });
+
+      // Si hay kodiprops que indiquen ClearKey
+      if (channel.kodiprops['inputstream.adaptive.license_type'] === 'clearkey' ||
+          channel.kodiprops['license_type'] === 'clearkey') {
+        // Se espera que kodiprops tenga key_id y key en hex o base64
+        const kid = channel.kodiprops['key_id'] || channel.kodiprops['inputstream.adaptive.key_id'];
+        const key = channel.kodiprops['key'] || channel.kodiprops['inputstream.adaptive.key'];
+        if (kid && key) {
+          // se asume hex; si son base64 necesitarás convertir
+          const map = {};
+          map[kid] = key;
+          player.configure({ drm: { clearKeys: map } });
+          console.log('Configurado ClearKey para canal', channel.title, map);
+        } else {
+          console.warn('Canal tiene clearkey declarado pero no todos los campos key_id / key están definidos');
+        }
+      } else if (channel.kodiprops['license_key']) {
+        // Alternativa: url de licencia
+        const licenseUrl = channel.kodiprops['license_key'];
+        player.configure({ drm: { servers: { 'org.w3.clearkey': licenseUrl } } });
+        console.log('Configurado servidor ClearKey para canal', channel.title, licenseUrl);
+      } else {
+        console.log('Sin DRM especial para canal', channel.title);
+      }
+
+      try {
+        await player.load(channel.url);
+        console.log('Canal cargado:', channel.title);
+      } catch(e) {
+        console.error('Error al cargar canal', channel.title, e);
+      }
+    }
+
+    function onErrorEvent(event) {
+      const error = event.detail || event;
+      console.error('Shaka error código', error.code, 'objeto', error);
+    }
+  </script>
 </body>
 </html>
