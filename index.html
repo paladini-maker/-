@@ -2,83 +2,108 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Test Shaka + Cast + ClearKey</title>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.12.3/shaka-player.ui.min.js"></script>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.12.3/controls.min.css">
+  <title>Shaka + Cast integrado</title>
 
-  <!-- Google Cast Framework -->
-  <script type="text/javascript"
-    src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
+  <!-- Cast init FIRST -->
+  <script>
+    window.__onGCastApiAvailable = function(isAvailable) {
+      if (isAvailable) {
+        cast.framework.CastContext.getInstance().setOptions({
+          receiverApplicationId: chrome.cast.media.DEFAULT_MEDIA_RECEIVER_APP_ID
+        });
+      }
+    };
+  </script>
+
+  <!-- Cast Framework -->
+  <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
+
+  <!-- Shaka -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.12.3/shaka-player.ui.min.js"></script>
+  <link rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.12.3/controls.min.css">
 
   <style>
-    body { background: #111; color: white; font-family: sans-serif; margin: 0; }
-    #video-container { width: 100%; height: 70vh; }
-    #cast-button { margin: 20px; }
+    body { background: #111; color:white; margin:0; }
+
+    google-cast-launcher {
+      width: 32px;
+      height: 32px;
+      margin-left: 8px;
+      --google-cast-launcher-color: white;
+      cursor: pointer;
+    }
   </style>
 </head>
+
 <body>
 
-  <h2 style="margin:20px;">Test Shaka + Chromecast + ClearKey</h2>
-
-  <!-- Botón Cast visible SIEMPRE -->
-  <google-cast-launcher id="cast-button" style="width:48px; height:48px;"></google-cast-launcher>
-
-  <!-- Contenedor Shaka -->
-  <div id="video-container">
-    <video id="video" autoplay></video>
-  </div>
+<div id="video-container" style="width:100%; height:75vh;">
+  <video id="video" autoplay></video>
+</div>
 
 <script>
-  document.addEventListener('DOMContentLoaded', initApp);
+  document.addEventListener("DOMContentLoaded", async () => {
 
-  async function initApp() {
-    // Asegura compatibilidad antes de iniciar
     await shaka.polyfill.installAll();
-
-    if (!shaka.Player.isBrowserSupported()) {
-      console.error("Shaka: Browser no soportado");
-      return;
-    }
+    if (!shaka.Player.isBrowserSupported()) return;
 
     const video = document.getElementById('video');
     const container = document.getElementById('video-container');
 
-    // Inicializa UI
+    // 👉 Agregamos el botón Cast a la configuracion de Shaka UI
+    const uiConfig = {
+      controlPanelElements: [
+        'play_pause',
+        'time_and_duration',
+        'mute',
+        'volume',
+        'spacer',
+        'fullscreen',
+        'cast'   // 👈 Acá lo integramos en la barra
+      ],
+      addSeekBar: true
+    };
+
+    // Registramos un elemento personalizado de Shaka para que "cast" funcione
+    shaka.ui.Controls.registerElement('cast', new class {
+      constructor(parent, controls) {
+        this.parent = parent;
+        this.button = document.createElement('google-cast-launcher');
+        this.parent.appendChild(this.button);
+      }
+      release() {}
+    });
+
+    // Inicializamos UI + Player
     const ui = new shaka.ui.Overlay(
       new shaka.Player(video),
       container,
       video
     );
 
+    ui.configure(uiConfig);
     const player = ui.getControls().getPlayer();
 
-    // DASH con ClearKey — modificalo por tu MPD real
-    const manifestUri = "https://cdn.cvattv.com.ar/live/c6eds/Canal7/SA_Live_dash_enc/Canal7.mpd";
-
-    const clearKeyConfig = {
+    // ClearKey para tu MPD
+    player.configure({
       drm: {
         clearKeys: {
-          // keyId:key (hex)
           "cc8c82ac2ec7e9799527c29db7354e81":
           "cc4aae173dd2ef17ae26be3f7ae87662"
         }
       }
-    };
-
-    player.configure(clearKeyConfig);
-
-    try {
-      await player.load(manifestUri);
-      console.log("Listo: Reproduciendo.");
-    } catch (e) {
-      console.error("Error cargando MPD:", e);
-    }
-
-    // Fuerza que el botón Cast aparezca siempre
-    cast.framework.CastContext.getInstance().setOptions({
-      receiverApplicationId: chrome.cast.media.DEFAULT_MEDIA_RECEIVER_APP_ID
     });
-  }
+
+    // Cargamos el MPD
+    try {
+      await player.load("https://cdn.cvattv.com.ar/live/c6eds/Canal7/SA_Live_dash_enc/Canal7.mpd");
+      console.log("Reproduciendo…");
+    } catch (err) {
+      console.error(err);
+    }
+  });
 </script>
+
 </body>
 </html>
