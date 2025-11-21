@@ -1,154 +1,163 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="utf-8">
-  <title>Canales + Shaka + Chromecast</title>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.0.0/shaka-player.ui.min.js"></script>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.0.0/controls.min.css"/>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Shaka + Cast (ClearKey) - Corregido</title>
+
+  <!-- Shaka UI -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.12.3/controls.min.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.12.3/shaka-player.ui.min.js"></script>
+
+  <!-- Google Cast Sender (framework) -->
   <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
 
   <style>
-    body { font-family: sans-serif; margin: 20px; }
-    #channels { margin-bottom: 20px; }
-    #channels button { display: block; margin: 4px 0; padding: 8px; }
-    #videoContainer { max-width: 640px; margin: auto; }
+    body { background:#000; color:#fff; font-family: sans-serif; margin:0; padding:20px; display:flex; flex-direction:column; align-items:center; }
+    h3 { margin: 0 0 16px 0; }
+    .cast-wrapper { width:100%; max-width:800px; display:flex; justify-content:flex-end; margin-bottom:8px; }
+    #video-container { width:100%; max-width:800px; }
+    video { width:100%; height:auto; background:#111; }
+    google-cast-launcher { width:44px; height:44px; cursor:pointer; --connected-color:#4285f4; --disconnected-color:#fff; }
+    .warning { color: #ffcc00; font-size:0.9rem; margin-top:8px; }
   </style>
 </head>
 <body>
-  <h1>Selecciona un canal</h1>
-  <div id="channels">Cargando canales…</div>
+  <h3>Shaka + Cast (ClearKey) — Test</h3>
 
-  <div id="videoContainer"
-       data-shaka-player-container
-       data-shaka-player-cast-receiver-id="CC1AD845">
-    <video id="video" width="640" controls autoplay data-shaka-player></video>
+  <div class="cast-wrapper">
+    <!-- Botón externo. Se "upgradea" cuando carga el SDK de Cast -->
+    <google-cast-launcher id="cast-btn" title="Cast"></google-cast-launcher>
   </div>
 
-  <script>
-    document.addEventListener('DOMContentLoaded', initApp);
+  <div id="video-container">
+    <!-- El overlay de Shaka se engancha a este contenedor -->
+    <video id="video" poster="//shaka-player-demo.appspot.com/assets/poster.jpg" playsinline controls></video>
+  </div>
 
-    async function initApp(){
-      shaka.polyfill.installAll();
-      if (!shaka.Player.isBrowserSupported()) {
-        console.error('Browser no soportado');
-        return;
+  <div id="info" class="warning" aria-live="polite"></div>
+
+<script>
+  // --- CONFIG ---
+  const MANIFEST_URI = "https://cdn.cvattv.com.ar/live/c6eds/Canal7/SA_Live_dash_enc/Canal7.mpd";
+  const RECEIVER_APP_ID = "07AEE832"; // Reemplaza si tenés App ID propio (registra dominios en la consola Cast)
+  const DRM_CLEARKEY = {
+    drm: {
+      clearKeys: {
+        "cc8c82ac2ec7e9799527c29db7354e81": "cc4aae173dd2ef17ae26be3f7ae87662"
       }
+    }
+  };
 
-      const video = document.getElementById('video');
-      const ui = video['ui'];
-      const controls = ui.getControls();
-      const player = controls.getPlayer();
+  // --- HELPERS ---
+  const infoEl = document.getElementById('info');
+  function info(msg) { console.log(msg); infoEl.textContent = msg; }
 
-      player.addEventListener('error', onErrorEvent);
-      controls.addEventListener('error', onErrorEvent);
+  // Detectar entorno que probablemente no soporte Cast (WebView típico)
+  const ua = navigator.userAgent || '';
+  const isProbablyWebView = /\bwv\b|Android.*WebView|Version\/\d+\.\d+\s+Chrome\/\d+/i.test(ua) && !/Chrome\/\d+/i.test(ua);
+  if (isProbablyWebView) {
+    info('Atención: este WebView probablemente no ofrezca la API de Cast. Proba en Chrome para Android.');
+  }
+  if (location.protocol !== 'https:' && !location.hostname.match(/localhost|127\.0\.0\.1/)) {
+    console.warn('Debes servir la página por HTTPS para que Cast funcione correctamente.');
+  }
 
+  // --- Inicialización: esperar la API de Cast, pero tener fallback ---
+  let initCalled = false;
+  // Este callback lo invoca el script de cast_sender.js cuando carga
+  window['__onGCastApiAvailable'] = function(isAvailable) {
+    if (isAvailable) {
       try {
-        const resp = await fetch('https://raw.githubusercontent.com/paladini-maker/-/refs/heads/main/002.m3u');
-        const text = await resp.text();
-        const channels = parseM3UWithKodipropClearkey(text);
-        buildChannelList(channels, player);
-      } catch(e) {
-        console.error('Error cargando lista de canales', e);
-        document.getElementById('channels').textContent = 'No se pudo cargar la lista de canales.';
+        // Inicializar CastContext lo antes posible
+        const ctx = cast.framework.CastContext.getInstance();
+        ctx.setOptions({
+          receiverApplicationId: RECEIVER_APP_ID,
+          autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
+        });
+        console.log('Cast API disponible y CastContext inicializado');
+        info('Cast API disponible');
+      } catch (err) {
+        console.warn('Error al inicializar CastContext:', err);
+        info('Cast API cargada, pero falló inicialización. Revisa App ID y consola.');
       }
+    } else {
+      console.warn('Cast API no disponible (isAvailable=false)');
+      info('Cast API no disponible en este entorno.');
     }
 
-    function parseM3UWithKodipropClearkey(text) {
-      const lines = text.split('\n');
-      const entries = [];
-      let curr = null;
+    // Llamar initPlayer (solo una vez)
+    if (!initCalled) { initCalled = true; initPlayer(); }
+  };
 
-      for (let rawLine of lines) {
-        const line = rawLine.trim();
-        if (!line) continue;
+  // Fallback: si la API nunca llamó al callback (por ejemplo carga lenta o bloqueo),
+  // iniciamos el player local después de 1.5s para que no quede vacío.
+  setTimeout(() => {
+    if (!initCalled) {
+      console.warn('Timeout esperando Cast API. Iniciando player local como fallback.');
+      info('No llegó señal de Cast API — iniciando player local.');
+      initCalled = true;
+      initPlayer();
+    }
+  }, 1500);
 
-        if (line.startsWith('#EXTINF:')) {
-          const parts = line.split(',');
-          curr = {
-            title: (parts[1] || 'Sin título').trim(),
-            url: null,
-            kodiprops: {}
-          };
-        } else if (line.startsWith('#KODIPROP:') && curr) {
-          const kv = line.substring('#KODIPROP:'.length).trim();
-          const eq = kv.indexOf('=');
-          if (eq >= 0) {
-            const key = kv.substring(0, eq).trim();
-            const value = kv.substring(eq + 1).trim();
-            curr.kodiprops[key] = value;
-          }
-        } else if (!line.startsWith('#') && curr) {
-          curr.url = line;
-          entries.push(curr);
-          curr = null;
-        }
+  // --- Init Shaka Player ---
+  async function initPlayer() {
+    shaka.polyfill.installAll();
+
+    const video = document.getElementById('video');
+    const container = document.getElementById('video-container');
+
+    const player = new shaka.Player(video);
+
+    // Aplicar ClearKey (o servidor) antes de cargar
+    player.configure(DRM_CLEARKEY);
+
+    // Si la API de Cast está presente, creamos CastProxy.
+    let castProxy = null;
+    if (window.cast && cast.framework) {
+      try {
+        // androidReceiverCompatible true si el receptor es compatible con Android TV
+        castProxy = new shaka.cast.CastProxy(video, player, RECEIVER_APP_ID, /*androidReceiverCompatible=*/ true);
+        console.log('CastProxy creado');
+      } catch (err) {
+        console.warn('No se pudo crear CastProxy:', err);
       }
-
-      return entries;
+    } else {
+      console.log('Cast framework no disponible: no se crea CastProxy.');
     }
 
-    function buildChannelList(channels, player) {
-      const div = document.getElementById('channels');
-      div.innerHTML = '';
-      channels.forEach(ch => {
-        const btn = document.createElement('button');
-        btn.textContent = ch.title;
-        btn.onclick = () => {
-          console.log('Seleccionado canal:', ch.title, ch.url, ch.kodiprops);
-          configureAndLoad(player, ch);
-        };
-        div.appendChild(btn);
+    // Interfaz UI de Shaka. Incluye el control 'cast' — solo se mostrará si hay CastProxy.
+    const ui = new shaka.ui.Overlay(player, container, video);
+    ui.configure({
+      controlPanelElements: ['play_pause', 'time_and_duration', 'spacer', 'mute', 'volume', 'cast', 'fullscreen'],
+      overflowMenuButtons: ['quality', 'language']
+    });
+
+    // Manejo de errores del player
+    player.addEventListener('error', (evt) => {
+      console.error('Shaka error', evt.detail);
+      info('Error Shaka: ' + (evt.detail && evt.detail.message ? evt.detail.message : 'revisar consola'));
+    });
+
+    // Intentamos cargar el manifiesto
+    try {
+      await player.load(MANIFEST_URI);
+      console.log('Manifiesto cargado correctamente');
+      info('Reproduciendo (local). Si Cast está disponible, usa el botón para transmitir.');
+    } catch (e) {
+      console.error('Error cargando contenido:', e);
+      info('Error cargando contenido. Revisa CORS, servidor y claves ClearKey.');
+    }
+
+    // Opcional: escuchar cambios de estado del contexto Cast
+    if (window.cast && cast.framework) {
+      const ctx = cast.framework.CastContext.getInstance();
+      ctx.addEventListener(cast.framework.CastContextEventType.CAST_STATE_CHANGED, (e) => {
+        console.log('Cast state:', ctx.getCastState());
       });
     }
-
-    async function configureAndLoad(player, channel) {
-      // Reset configuración DRM
-      player.configure({
-        drm: {
-          clearKeys: {},
-          servers: {}
-        }
-      });
-
-      // Si tiene ClearKey vía kodiprops
-      if (channel.kodiprops['inputstream.adaptive.license_type'] === 'org.w3.clearkey') {
-        const raw = channel.kodiprops['inputstream.adaptive.license_key'];
-        if (raw) {
-          const parts = raw.split(':');
-          const kidHex = parts[0];
-          const keyHex = parts[1];
-          if (kidHex && keyHex) {
-            const map = {};
-            map[kidHex] = keyHex;
-            player.configure({ drm: { clearKeys: map } });
-            console.log('Configurado ClearKey para canal', channel.title, map);
-          } else {
-            console.warn('Formato key inválido para canal', channel.title, raw);
-          }
-        } else {
-          console.warn('Canal con clearkey declarado pero sin license_key', channel.title);
-        }
-      } else if (channel.kodiprops['license_key']) {
-        const licenseUrl = channel.kodiprops['license_key'];
-        player.configure({ drm: { servers: { 'org.w3.clearkey': licenseUrl } } });
-        console.log('Configurado servidor ClearKey para canal', channel.title, licenseUrl);
-      } else {
-        console.log('Sin DRM especial para canal', channel.title);
-      }
-
-      try {
-        await player.load(channel.url);
-        console.log('Canal cargado:', channel.title);
-      } catch(e) {
-        console.error('Error al cargar canal', channel.title, e);
-      }
-    }
-
-    function onErrorEvent(event) {
-      const error = event.detail || event;
-      console.error('Shaka error código', error.code, 'objeto', error);
-    }
-
-  </script>
+  }
+</script>
 </body>
 </html>
