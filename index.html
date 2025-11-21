@@ -2,82 +2,93 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<title>Mini Shaka + Cast + ClearKey</title>
+<title>IPTV ClearKey + Shaka + Chromecast</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
 <!-- Shaka Player -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.12.3/shaka-player.ui.min.js"></script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.12.3/controls.min.css">
 
-<!-- Google Cast Sender -->
+<!-- Google Cast -->
 <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
 
 <style>
 body {
   background:#111;
   color:#eee;
-  font-family:Arial, sans-serif;
-  text-align:center;
+  font-family:Arial;
   padding:20px;
+  text-align:center;
 }
-#video-container { width:100%; max-width:900px; margin:0 auto; }
+#video-container { width:100%; max-width:900px; margin:auto; }
 #castBtn {
   background:#ffcc00;
   border:none;
   color:#000;
   padding:10px 16px;
-  margin-top:12px;
+  margin-top:15px;
   border-radius:6px;
   cursor:pointer;
   font-size:16px;
   font-weight:bold;
 }
-.channel-btn {
-  margin:6px;
-  padding:8px 12px;
-  background:#444;
-  border:none;
-  color:#fff;
-  border-radius:4px;
+.channel-list {
+  margin-top:20px;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:10px;
+}
+.channel-item {
+  background:#222;
+  padding:10px;
+  width:90%;
+  max-width:450px;
+  border-radius:6px;
   cursor:pointer;
+  text-align:left;
+  display:flex;
+  gap:10px;
+  align-items:center;
+}
+.channel-item img {
+  width:50px;
+  height:50px;
+  object-fit:contain;
+}
+.channel-item:hover {
+  background:#333;
 }
 </style>
 </head>
 
 <body>
 
-<h2>Mini Shaka + Chromecast</h2>
+<h2>IPTV con ClearKey + Shaka + Chromecast</h2>
 
-<!-- Video Player -->
+<!-- Player -->
 <div id="video-container">
   <video id="video" autoplay muted controls></video>
-</div>
-
-<!-- Channels -->
-<div style="margin-top:20px;">
-  <button class="channel-btn" onclick="loadChannel(channel1)">Canal de Ejemplo</button>
 </div>
 
 <!-- Cast Button -->
 <button id="castBtn">📺 Enviar al Chromecast</button>
 
+<h3>Canales</h3>
+<div class="channel-list" id="channelList"></div>
+
 <script>
 ///////////////////////////////////////////////////////////////////////////////
-// 1) Canal de ejemplo — reemplazá con tu M3U más tarde
+// CONFIG: Reemplazá con la URL de tu M3U
 ///////////////////////////////////////////////////////////////////////////////
-const channel1 = {
-  name: "Canal Demo",
-  mpd: "https://cdn.cvattv.com.ar/live/c6eds/Canal7/SA_Live_dash_enc/Canal7.mpd",
-  kid: "cc8c82ac2ec7e9799527c29db7354e81",
-  key: "cc4aae173dd2ef17ae26be3f7ae87662",
-  logo: "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1f/Test.png/240px-Test.png"
-};
+const M3U_URL = "https://raw.githubusercontent.com/paladini-maker/-/refs/heads/main/002.m3u";
 
+let channels = [];
 let currentChannel = null;
 
 
 ///////////////////////////////////////////////////////////////////////////////
-// 2) Inicializar Shaka
+// 1) Inicializar Shaka
 ///////////////////////////////////////////////////////////////////////////////
 async function initShaka() {
   if (!shaka.Player.isBrowserSupported()) {
@@ -92,20 +103,91 @@ document.addEventListener("DOMContentLoaded", initShaka);
 
 
 ///////////////////////////////////////////////////////////////////////////////
-// 3) Cargar canal localmente con ClearKey
+// 2) Descargar y parsear la M3U
+///////////////////////////////////////////////////////////////////////////////
+async function loadM3U() {
+  const text = await fetch(M3U_URL).then(r => r.text());
+  const lines = text.split("\n");
+
+  let current = {};
+
+  for (let line of lines) {
+    line = line.trim();
+
+    // EXTINF (nombre + logo)
+    if (line.startsWith("#EXTINF")) {
+      current = {};
+
+      const nameMatch = line.match(/,(.*)$/);
+      current.name = nameMatch ? nameMatch[1].trim() : "Sin nombre";
+
+      const logoMatch = line.match(/tvg-logo="(.*?)"/);
+      current.logo = logoMatch ? logoMatch[1] : "";
+    }
+
+    // ClearKey
+    if (line.startsWith("#KODIPROP:inputstream.adaptive.license_key")) {
+      // Formato típico: {"keys":[{"kty":"oct","k":"<key>","kid":"<kid>"}],"type":"temporary"}
+      const jsonStr = line.split("=")[1];
+      try {
+        const data = JSON.parse(jsonStr);
+        current.key = data.keys[0].k;
+        current.kid = data.keys[0].kid;
+      } catch (e) {
+        console.warn("Error parseando ClearKey:", e);
+      }
+    }
+
+    // URL del MPD
+    if (line.startsWith("http") && line.includes(".mpd")) {
+      current.mpd = line.trim();
+      channels.push(current);
+      current = {};
+    }
+  }
+
+  renderChannelList();
+}
+
+
+///////////////////////////////////////////////////////////////////////////////
+// 3) Mostrar lista de canales
+///////////////////////////////////////////////////////////////////////////////
+function renderChannelList() {
+  const cont = document.getElementById("channelList");
+  cont.innerHTML = "";
+
+  channels.forEach((ch, idx) => {
+    const div = document.createElement("div");
+    div.className = "channel-item";
+
+    div.innerHTML = `
+      <img src="${ch.logo || 'https://via.placeholder.com/50'}">
+      <div>
+        <strong>${ch.name}</strong><br>
+        <small>${ch.mpd}</small>
+      </div>
+    `;
+
+    div.onclick = () => loadChannel(ch);
+    cont.appendChild(div);
+  });
+}
+
+
+///////////////////////////////////////////////////////////////////////////////
+// 4) Cargar un canal en Shaka (local)
 ///////////////////////////////////////////////////////////////////////////////
 async function loadChannel(ch) {
   try {
     await player.configure({
-      drm: {
-        clearKeys: { [ch.kid]: ch.key }
-      }
+      drm: { clearKeys: { [ch.kid]: ch.key } }
     });
 
     await player.load(ch.mpd);
     currentChannel = ch;
 
-    console.log("Reproduciendo local:", ch.name);
+    console.log("Reproduciendo:", ch.name);
   } catch (e) {
     console.error("Error cargando canal:", e);
   }
@@ -113,7 +195,7 @@ async function loadChannel(ch) {
 
 
 ///////////////////////////////////////////////////////////////////////////////
-// 4) Inicializar CAST (Default Media Receiver)
+// 5) Inicializar Cast
 ///////////////////////////////////////////////////////////////////////////////
 window.__onGCastApiAvailable = (isAvailable) => {
   if (isAvailable) {
@@ -127,7 +209,7 @@ window.__onGCastApiAvailable = (isAvailable) => {
 
 
 ///////////////////////////////////////////////////////////////////////////////
-// 5) Enviar canal actual al Chromecast
+// 6) Enviar canal al Chromecast
 ///////////////////////////////////////////////////////////////////////////////
 async function castChannel(ch) {
   const context = cast.framework.CastContext.getInstance();
@@ -138,10 +220,7 @@ async function castChannel(ch) {
     session = context.getCurrentSession();
   }
 
-  const mediaInfo = new chrome.cast.media.MediaInfo(
-    ch.mpd,
-    "application/dash+xml"
-  );
+  const mediaInfo = new chrome.cast.media.MediaInfo(ch.mpd, "application/dash+xml");
 
   // Metadata
   const metadata = new chrome.cast.media.GenericMediaMetadata();
@@ -157,24 +236,30 @@ async function castChannel(ch) {
     }
   };
 
-  const request = new chrome.cast.media.LoadRequest(mediaInfo);
+  const req = new chrome.cast.media.LoadRequest(mediaInfo);
 
-  session.loadMedia(request)
-    .then(() => console.log("Canal enviado al Chromecast:", ch.name))
-    .catch(err => console.error("Error al enviar:", err));
+  session.loadMedia(req)
+    .then(() => console.log("Enviado al Chromecast:", ch.name))
+    .catch(err => console.error("Error en Cast:", err));
 }
 
 
 ///////////////////////////////////////////////////////////////////////////////
-// 6) Evento del botón Cast
+// 7) Botón Cast
 ///////////////////////////////////////////////////////////////////////////////
-document.getElementById("castBtn").addEventListener("click", () => {
+document.getElementById("castBtn").onclick = () => {
   if (!currentChannel) {
-    alert("Primero seleccioná un canal.");
+    alert("Primero seleccioná un canal");
     return;
   }
   castChannel(currentChannel);
-});
+};
+
+
+///////////////////////////////////////////////////////////////////////////////
+// 8) Arrancar todo
+///////////////////////////////////////////////////////////////////////////////
+loadM3U();
 </script>
 
 </body>
