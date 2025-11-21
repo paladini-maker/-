@@ -1,94 +1,132 @@
 <!DOCTYPE html>
-<html>
+<html lang="es">
 <head>
   <meta charset="utf-8">
-  <title>Test Shaka + Cast + ClearKey</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Shaka Android Cast</title>
   
-  <!-- Shaka Player UI y Core -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.12.3/shaka-player.ui.min.js"></script>
+  <!-- 1. Estilos de Shaka -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.12.3/controls.min.css">
+  
+  <!-- 2. Script de Shaka -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.12.3/shaka-player.ui.min.js"></script>
 
-  <!-- Google Cast Framework -->
-  <script type="text/javascript" src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
+  <!-- 3. Script de Google Cast -->
+  <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
 
   <style>
-    body { background: #111; color: white; font-family: sans-serif; margin: 0; display: flex; flex-direction: column; align-items: center; }
-    #video-container { width: 80%; max-width: 800px; margin-top: 20px; }
-    h2 { margin-top: 20px; }
-    /* El botón nativo de Google Cast */
-    google-cast-launcher { margin: 20px; cursor: pointer; --connected-color: #4285f4; --disconnected-color: #ccc; }
+    body {
+      background-color: #000;
+      color: #fff;
+      font-family: sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin: 0;
+      padding-top: 20px;
+    }
+
+    /* Contenedor para centrar el botón */
+    .cast-wrapper {
+      margin-bottom: 20px;
+      display: flex;
+      justify-content: center;
+      width: 100%;
+    }
+
+    /* Botón de Cast Grande para Android */
+    google-cast-launcher {
+      width: 60px;
+      height: 60px;
+      cursor: pointer;
+      --connected-color: #4285f4;   /* Azul cuando está conectado */
+      --disconnected-color: #fff;   /* Blanco cuando está desconectado */
+    }
+
+    #video-container {
+      width: 100%;
+      max-width: 800px;
+    }
+    
+    video {
+      width: 100%;
+    }
   </style>
 </head>
 <body>
 
-  <h2>Test Shaka + Chromecast + ClearKey</h2>
+  <h3 style="text-align:center;">Test Android + Cast + ClearKey</h3>
 
-  <!-- Botón Cast -->
-  <google-cast-launcher id="cast-button"></google-cast-launcher>
+  <!-- BOTÓN DE CAST -->
+  <div class="cast-wrapper">
+    <google-cast-launcher id="cast-btn"></google-cast-launcher>
+  </div>
 
-  <!-- Contenedor Shaka -->
+  <!-- VIDEO -->
   <div id="video-container">
-    <video id="video" width="100%" poster="//shaka-player-demo.appspot.com/assets/poster.jpg"></video>
+    <video id="video" poster="//shaka-player-demo.appspot.com/assets/poster.jpg"></video>
   </div>
 
 <script>
-  document.addEventListener('DOMContentLoaded', initApp);
+  // CONFIGURACIÓN
+  const MANIFEST_URI = "https://cdn.cvattv.com.ar/live/c6eds/Canal7/SA_Live_dash_enc/Canal7.mpd";
+  // Usamos el App ID de Shaka Demo (Soporta ClearKey)
+  const RECEIVER_APP_ID = '07AEE832'; 
 
-  async function initApp() {
-    // 1. Instalar Polyfills
-    shaka.polyfill.installAll();
-
-    if (!shaka.Player.isBrowserSupported()) {
-      console.error("Shaka: Navegador no soportado");
-      return;
+  const drmConfig = {
+    drm: {
+      clearKeys: {
+        "cc8c82ac2ec7e9799527c29db7354e81": "cc4aae173dd2ef17ae26be3f7ae87662"
+      }
     }
+  };
+
+  // Inicialización segura para esperar la API de Cast
+  window['__onGCastApiAvailable'] = function(isAvailable) {
+    if (isAvailable) {
+      initializeCast();
+    } else {
+      console.log("Cast API no disponible (Revisa HTTPS o Red)");
+    }
+  };
+
+  function initializeCast() {
+    console.log("Inicializando contexto Cast...");
+    cast.framework.CastContext.getInstance().setOptions({
+      receiverApplicationId: RECEIVER_APP_ID,
+      autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
+    });
+
+    initPlayer();
+  }
+
+  async function initPlayer() {
+    shaka.polyfill.installAll();
 
     const video = document.getElementById('video');
     const container = document.getElementById('video-container');
-
-    // 2. Inicializar el Reproductor Local
     const player = new shaka.Player(video);
 
-    // 3. Configurar DRM (ClearKey)
-    // Shaka enviará esta config al Chromecast a través del Proxy
-    const clearKeyConfig = {
-      drm: {
-        clearKeys: {
-          // keyId : key
-          "cc8c82ac2ec7e9799527c29db7354e81": "cc4aae173dd2ef17ae26be3f7ae87662"
-        }
-      }
-    };
-    player.configure(clearKeyConfig);
+    // --- CAST PROXY ---
+    // Conecta el reproductor local con el remoto
+    const castProxy = new shaka.cast.CastProxy(video, player, RECEIVER_APP_ID);
 
-    // 4. Inicializar la UI (Opcional, pero recomendado para controles)
+    // UI (Sin botón de cast interno)
     const ui = new shaka.ui.Overlay(player, container, video);
-    // Desactivamos el botón de cast de la UI de Shaka para usar el google-cast-launcher externo
-    // o dejamos que coexistan. Aquí lo dejaremos por defecto.
+    ui.configure({
+      controlPanelElements: ['play_pause', 'time_and_duration', 'spacer', 'mute', 'fullscreen'],
+      overflowMenuButtons: ['quality', 'language']
+    });
 
-    // 5. IMPLEMENTAR EL CAST PROXY (El paso que faltaba)
-    // Usamos el App ID de Shaka Demo ('07AEE832') porque sabe manejar ClearKey enviado por config.
-    // Si usas el Default Receiver, es posible que no descifre el video.
-    const receiverAppId = '07AEE832'; 
-    const castProxy = new shaka.cast.CastProxy(video, player, receiverAppId);
+    // Configurar DRM
+    player.configure(drmConfig);
 
-    // Conectar el proxy a la UI (para que los controles de la UI controlen el Cast)
-    const controls = ui.getControls();
-    
-    // El CastProxy necesita saber cuándo el usuario interactúa.
-    // Dado que usamos <google-cast-launcher>, el framework de Cast maneja el click,
-    // y Shaka escucha el cambio de contexto automáticamente.
-
-    const manifestUri = "https://cdn.cvattv.com.ar/live/c6eds/Canal7/SA_Live_dash_enc/Canal7.mpd";
-
-    console.log("Iniciando carga...");
-
+    // Cargar Video
     try {
-      // Cargar el manifiesto en el reproductor (o en el Cast si ya está conectado)
-      await player.load(manifestUri);
-      console.log("Listo: Reproduciendo.");
+      await player.load(MANIFEST_URI);
+      console.log('Reproduciendo en Android');
     } catch (e) {
-      console.error("Error cargando MPD:", e);
+      console.error('Error:', e);
     }
   }
 </script>
