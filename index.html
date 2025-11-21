@@ -3,10 +3,8 @@
 <head>
   <meta charset="utf-8">
   <title>Canales + Shaka + Chromecast</title>
-  <!-- Shaka Player con UI -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.0.0/shaka-player.ui.min.js"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.0.0/controls.min.css"/>
-  <!-- Google Cast Sender SDK -->
   <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
 
   <style>
@@ -37,18 +35,17 @@
       }
 
       const video = document.getElementById('video');
-      const ui = video.ui;  // la UI Library inicializa automáticamente
+      const ui = video['ui'];
       const controls = ui.getControls();
       const player = controls.getPlayer();
 
       player.addEventListener('error', onErrorEvent);
       controls.addEventListener('error', onErrorEvent);
 
-      // Cargar lista .m3u con metadatos KODIPROP
       try {
         const resp = await fetch('https://raw.githubusercontent.com/paladini-maker/-/refs/heads/main/002.m3u');
         const text = await resp.text();
-        const channels = parseM3UWithKodiprop(text);
+        const channels = parseM3UWithKodipropClearkey(text);
         buildChannelList(channels, player);
       } catch(e) {
         console.error('Error cargando lista de canales', e);
@@ -56,13 +53,13 @@
       }
     }
 
-    function parseM3UWithKodiprop(text) {
+    function parseM3UWithKodipropClearkey(text) {
       const lines = text.split('\n');
       const entries = [];
       let curr = null;
 
-      for (let raw of lines) {
-        const line = raw.trim();
+      for (let rawLine of lines) {
+        const line = rawLine.trim();
         if (!line) continue;
 
         if (line.startsWith('#EXTINF:')) {
@@ -77,7 +74,7 @@
           const eq = kv.indexOf('=');
           if (eq >= 0) {
             const key = kv.substring(0, eq).trim();
-            const value = kv.substring(eq+1).trim();
+            const value = kv.substring(eq + 1).trim();
             curr.kodiprops[key] = value;
           }
         } else if (!line.startsWith('#') && curr) {
@@ -86,6 +83,7 @@
           curr = null;
         }
       }
+
       return entries;
     }
 
@@ -104,7 +102,7 @@
     }
 
     async function configureAndLoad(player, channel) {
-      // Reset config a base
+      // Reset configuración DRM
       player.configure({
         drm: {
           clearKeys: {},
@@ -112,23 +110,25 @@
         }
       });
 
-      // Si hay kodiprops que indiquen ClearKey
-      if (channel.kodiprops['inputstream.adaptive.license_type'] === 'clearkey' ||
-          channel.kodiprops['license_type'] === 'clearkey') {
-        // Se espera que kodiprops tenga key_id y key en hex o base64
-        const kid = channel.kodiprops['key_id'] || channel.kodiprops['inputstream.adaptive.key_id'];
-        const key = channel.kodiprops['key'] || channel.kodiprops['inputstream.adaptive.key'];
-        if (kid && key) {
-          // se asume hex; si son base64 necesitarás convertir
-          const map = {};
-          map[kid] = key;
-          player.configure({ drm: { clearKeys: map } });
-          console.log('Configurado ClearKey para canal', channel.title, map);
+      // Si tiene ClearKey vía kodiprops
+      if (channel.kodiprops['inputstream.adaptive.license_type'] === 'org.w3.clearkey') {
+        const raw = channel.kodiprops['inputstream.adaptive.license_key'];
+        if (raw) {
+          const parts = raw.split(':');
+          const kidHex = parts[0];
+          const keyHex = parts[1];
+          if (kidHex && keyHex) {
+            const map = {};
+            map[kidHex] = keyHex;
+            player.configure({ drm: { clearKeys: map } });
+            console.log('Configurado ClearKey para canal', channel.title, map);
+          } else {
+            console.warn('Formato key inválido para canal', channel.title, raw);
+          }
         } else {
-          console.warn('Canal tiene clearkey declarado pero no todos los campos key_id / key están definidos');
+          console.warn('Canal con clearkey declarado pero sin license_key', channel.title);
         }
       } else if (channel.kodiprops['license_key']) {
-        // Alternativa: url de licencia
         const licenseUrl = channel.kodiprops['license_key'];
         player.configure({ drm: { servers: { 'org.w3.clearkey': licenseUrl } } });
         console.log('Configurado servidor ClearKey para canal', channel.title, licenseUrl);
@@ -148,6 +148,7 @@
       const error = event.detail || event;
       console.error('Shaka error código', error.code, 'objeto', error);
     }
+
   </script>
 </body>
 </html>
