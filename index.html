@@ -4,74 +4,66 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Shaka Android Cast</title>
-  
-  <!-- 1. Estilos de Shaka -->
+
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.12.3/controls.min.css">
-  
-  <!-- 2. Script de Shaka -->
+
   <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.12.3/shaka-player.ui.min.js"></script>
 
-  <!-- 3. Script de Google Cast -->
+  <!-- Cast sender + namespace obligatorio -->
+  <script src="https://www.gstatic.com/cast/sdk/libs/sender/1.0/cast_sender.js"></script>
   <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
 
   <style>
     body {
-      background-color: #000;
+      background: #000;
       color: #fff;
       font-family: sans-serif;
       display: flex;
       flex-direction: column;
       align-items: center;
-      margin: 0;
       padding-top: 20px;
+      margin: 0;
     }
 
-    /* Contenedor para centrar el botón */
     .cast-wrapper {
-      margin-bottom: 20px;
+      margin: 20px 0;
       display: flex;
       justify-content: center;
       width: 100%;
     }
 
-    /* Botón de Cast Grande para Android */
     google-cast-launcher {
       width: 60px;
       height: 60px;
       cursor: pointer;
-      --connected-color: #4285f4;   /* Azul cuando está conectado */
-      --disconnected-color: #fff;   /* Blanco cuando está desconectado */
+      --connected-color: #4285f4;
+      --disconnected-color: #fff;
     }
 
     #video-container {
       width: 100%;
       max-width: 800px;
     }
-    
-    video {
-      width: 100%;
-    }
   </style>
 </head>
+
 <body>
 
-  <h3 style="text-align:center;">Test Android + Cast + ClearKey</h3>
+<h3>Test Android + Cast + ClearKey</h3>
 
-  <!-- BOTÓN DE CAST -->
-  <div class="cast-wrapper">
-    <google-cast-launcher id="cast-btn"></google-cast-launcher>
-  </div>
+<div class="cast-wrapper">
+  <google-cast-launcher></google-cast-launcher>
+</div>
 
-  <!-- VIDEO -->
-  <div id="video-container">
-    <video id="video" poster="//shaka-player-demo.appspot.com/assets/poster.jpg"></video>
-  </div>
+<div id="video-container">
+  <video id="video" poster="//shaka-player-demo.appspot.com/assets/poster.jpg"></video>
+</div>
 
 <script>
-  // CONFIGURACIÓN
-  const MANIFEST_URI = "https://cdn.cvattv.com.ar/live/c6eds/Canal7/SA_Live_dash_enc/Canal7.mpd";
-  // Usamos el App ID de Shaka Demo (Soporta ClearKey)
-  const RECEIVER_APP_ID = '07AEE832'; 
+  const MANIFEST_URI =
+    "https://cdn.cvattv.com.ar/live/c6eds/Canal7/SA_Live_dash_enc/Canal7.mpd";
+
+  const RECEIVER_APP_ID = "07AEE832"; // Shaka Demo Receiver
 
   const drmConfig = {
     drm: {
@@ -81,52 +73,48 @@
     }
   };
 
-  // Inicialización segura para esperar la API de Cast
-  window['__onGCastApiAvailable'] = function(isAvailable) {
-    if (isAvailable) {
-      initializeCast();
-    } else {
-      console.log("Cast API no disponible (Revisa HTTPS o Red)");
-    }
-  };
+  // 🔥 Inicializar Cast apenas está disponible
+  window["__onGCastApiAvailable"] = function(isAvailable) {
+    if (!isAvailable) return;
 
-  function initializeCast() {
-    console.log("Inicializando contexto Cast...");
-    cast.framework.CastContext.getInstance().setOptions({
+    const context = cast.framework.CastContext.getInstance();
+    context.setOptions({
       receiverApplicationId: RECEIVER_APP_ID,
       autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
     });
 
-    initPlayer();
-  }
+    initPlayer(); // Recién después armamos Shaka
+  };
 
   async function initPlayer() {
     shaka.polyfill.installAll();
 
-    const video = document.getElementById('video');
-    const container = document.getElementById('video-container');
+    const video = document.getElementById("video");
+    const container = document.getElementById("video-container");
     const player = new shaka.Player(video);
 
-    // --- CAST PROXY ---
-    // Conecta el reproductor local con el remoto
+    // Proxy Cast (importante para sincronizar local/remote)
     const castProxy = new shaka.cast.CastProxy(video, player, RECEIVER_APP_ID);
 
-    // UI (Sin botón de cast interno)
     const ui = new shaka.ui.Overlay(player, container, video);
     ui.configure({
-      controlPanelElements: ['play_pause', 'time_and_duration', 'spacer', 'mute', 'fullscreen'],
-      overflowMenuButtons: ['quality', 'language']
+      controlPanelElements: [
+        "play_pause",
+        "time_and_duration",
+        "spacer",
+        "mute",
+        "fullscreen"
+      ],
+      overflowMenuButtons: ["quality", "language"]
     });
 
-    // Configurar DRM
     player.configure(drmConfig);
 
-    // Cargar Video
     try {
       await player.load(MANIFEST_URI);
-      console.log('Reproduciendo en Android');
+      console.log("Reproduciendo OK");
     } catch (e) {
-      console.error('Error:', e);
+      console.error("Error cargando:", e);
     }
   }
 </script>
