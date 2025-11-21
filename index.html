@@ -2,23 +2,23 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Test IPTV + Shaka + Cast</title>
+  <title>Test IPTV + Shaka + Cast (Simple)</title>
 
-  <!-- Shaka Player -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.12.6/controls.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.12.6/shaka-player.compiled.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.12.6/shaka-player.ui.min.js"></script>
 
-  <!-- Cast -->
+  <!-- Chromecast sender -->
   <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
 
   <style>
-    body { background:#000; color:#fff; font-family:Arial; margin:0; padding:10px; }
-    #video-container { width:100%; height:60vh; background:#111; }
-    #log { background:#111; color:#0f0; font-size:12px; padding:10px; height:30vh; overflow-y:auto; margin-top:10px; }
-    button { margin:5px; padding:8px; }
+    body { background:#000; color:#fff; margin:0; padding:10px; font-family:Arial; }
+    #video-container { width:100%; height:55vh; background:#111; }
+    #log { background:#111; color:#0f0; padding:10px; margin-top:10px; height:30vh; overflow-y:auto; font-size:12px; }
+    button, select { padding:6px; margin:5px; }
   </style>
 </head>
+
 <body>
 
 <h3>TEST IPTV + SHAKA + CAST</h3>
@@ -29,8 +29,8 @@
   <button onclick="playSelected()">Reproducir</button>
 </div>
 
-<div id="video-container" data-shaka-player-container>
-  <video id="video" data-shaka-player autoplay style="width:100%; height:100%;"></video>
+<div id="video-container">
+  <video id="video" style="width:100%; height:100%;" autoplay></video>
 </div>
 
 <div id="log"></div>
@@ -40,63 +40,72 @@ const M3U_FILE = "https://raw.githubusercontent.com/paladini-maker/-/refs/heads/
 let channels = [];
 let player;
 
-function l(x){
+function log(x){
   console.log(x);
-  const log = document.getElementById("log");
-  log.innerText += x + "\n";
-  log.scrollTop = log.scrollHeight;
+  const div = document.getElementById("log");
+  div.innerText += x + "\n";
+  div.scrollTop = div.scrollHeight;
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
   shaka.polyfill.installAll();
 
-  player = new shaka.Player();
-  await player.attach(document.getElementById("video"));
+  // Player base
+  player = new shaka.Player(document.getElementById("video"));
 
-  // UI mínima
-  const ui = new shaka.ui.Overlay(player, document.getElementById("video"), document.getElementById("video-container"));
+  // UI mínima, sin stats, sin overlays de WebGL
+  const ui = new shaka.ui.Overlay(
+    player,
+    document.getElementById("video-container"),
+    document.getElementById("video")
+  );
+
   ui.configure({
+    addSeekBar: true,
     controlPanelElements: ['play_pause', 'mute', 'volume', 'fullscreen', 'overflow_menu'],
     overflowMenuButtons: ['cast', 'quality'],
+    statistics: { showPanel: false },
     castReceiverAppId: 'CC1AD845'
   });
 
-  player.addEventListener('error', e => l("ERROR: " + e.detail.code));
-  l("Shaka inicializado");
+  player.addEventListener('error', e => log("ERROR: " + e.detail.code));
+  log("Shaka inicializado.");
 });
 
+// ------------------------
+// CARGA DEL M3U
+// ------------------------
 async function loadM3U(){
-  l("Cargando M3U...");
+  log("Cargando M3U...");
   try {
     const r = await fetch(M3U_FILE);
-    const t = await r.text();
-    parseM3U(t);
+    const txt = await r.text();
+    parseM3U(txt);
   } catch(e){
-    l("Error cargando M3U: "+e.message);
+    log("Error M3U: " + e.message);
   }
 }
 
-function parseM3U(txt){
-  const lines = txt.split(/\n/);
+function parseM3U(text){
+  const lines = text.split(/\n/);
   let tmp = null;
   channels = [];
 
-  for(const lineRaw of lines){
-    const line = lineRaw.trim();
-
+  for(const raw of lines){
+    const line = raw.trim();
     if(line.startsWith("#EXTINF:")){
-      const name = line.split(",").pop().trim();
+      let name = line.split(",").pop().trim();
       tmp = { name, url:"", license:null };
     }
     else if(line.includes("license_key=") && tmp){
-      const raw = line.split("license_key=")[1].trim();
-      const parts = raw.split(":");
+      const lk = line.split("license_key=")[1].trim();
+      const parts = lk.split(":");
       if(parts.length >= 2) tmp.license = { [parts[0]]: parts[1] };
     }
     else if(!line.startsWith("#") && tmp){
-      tmp.url = line;
+      tmp.url = line.trim();
       channels.push(tmp);
-      tmp = null;
+      tmp=null;
     }
   }
 
@@ -109,30 +118,32 @@ function parseM3U(txt){
     sel.appendChild(opt);
   });
 
-  l("Canales cargados: " + channels.length);
+  log("Canales cargados: " + channels.length);
 }
 
+// ------------------------
+// REPRODUCIR
+// ------------------------
 async function playSelected(){
   const idx = document.getElementById("canales").value;
   const ch = channels[idx];
   if(!ch) return;
 
-  l("Reproduciendo: "+ch.name);
+  log("Reproduciendo: " + ch.name);
 
-  player.configure({
-    drm: {
-      clearKeys: ch.license || {}
-    }
-  });
+  const drmConfig = ch.license ? { clearKeys: ch.license } : {};
+
+  player.configure({ drm: drmConfig });
 
   try {
     await player.unload();
     await player.load(ch.url);
-    l("Reproducción OK");
-  } catch(e){
-    l("Error al reproducir: "+e.code);
+    log("Reproducción OK.");
+  } catch(err){
+    log("Error: " + err.code);
   }
 }
+
 </script>
 
 </body>
