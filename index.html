@@ -1,418 +1,139 @@
 <!DOCTYPE html>
-<html lang="es">
+<html>
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>IPTV Shaka Player Latest</title>
+  <title>Test IPTV + Shaka + Cast</title>
 
-  <!-- 
-     SHAKA PLAYER CSS (Versión 4.12.6) 
-     Esta hoja de estilos es necesaria para la UI (botones, barra de progreso, etc.)
-  -->
+  <!-- Shaka Player -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.12.6/controls.min.css">
-  
-  <!-- Iconos Material Design (Recomendados por Shaka UI) -->
-  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.12.6/shaka-player.compiled.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.12.6/shaka-player.ui.min.js"></script>
+
+  <!-- Cast -->
+  <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
 
   <style>
-    /* --- ESTILOS GENERALES (Dark Mode) --- */
-    body {
-      margin: 0;
-      background: #0a0a0a; /* Negro profundo */
-      color: #f0f0f0;
-      font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-      display: flex;
-      flex-direction: column;
-      height: 100vh;
-      overflow: hidden;
-    }
-
-    /* Layout Principal */
-    #layout {
-      display: flex;
-      flex: 1;
-      height: 100%;
-      overflow: hidden;
-    }
-
-    /* Sidebar (Lista de Canales) */
-    #sidebar {
-      width: 320px;
-      background: #161616;
-      border-right: 1px solid #333;
-      display: flex;
-      flex-direction: column;
-      flex-shrink: 0;
-      transition: transform 0.3s ease;
-    }
-
-    #sidebar-header {
-      padding: 15px;
-      background: #202020;
-      border-bottom: 1px solid #333;
-      font-weight: 600;
-      font-size: 1.1rem;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-
-    #channel-list {
-      flex: 1;
-      overflow-y: auto;
-      scrollbar-width: thin;
-      scrollbar-color: #444 #161616;
-    }
-
-    /* Scrollbar estilo Chrome/Webkit */
-    #channel-list::-webkit-scrollbar {
-      width: 8px;
-    }
-    #channel-list::-webkit-scrollbar-thumb {
-      background-color: #444;
-      border-radius: 4px;
-    }
-
-    /* Items de la lista */
-    .canal-item {
-      padding: 12px 15px;
-      border-bottom: 1px solid #252525;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      gap: 15px;
-      transition: background 0.2s;
-    }
-
-    .canal-item:hover {
-      background: #2a2a2a;
-    }
-
-    .canal-item.active {
-      background: #1976D2; /* Azul Shaka */
-      color: white;
-      border-color: #1976D2;
-    }
-
-    .canal-item img {
-      width: 45px;
-      height: 45px;
-      object-fit: contain;
-      background: #000;
-      border-radius: 6px;
-      padding: 2px;
-    }
-
-    .canal-info {
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-    }
-
-    .canal-name {
-      font-weight: 500;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .canal-status {
-      font-size: 0.75rem;
-      color: #aaa;
-    }
-    .canal-item.active .canal-status { color: #ddd; }
-
-    /* Contenedor del Player */
-    #main-content {
-      flex: 1;
-      position: relative;
-      background: #000;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    #video-container {
-      width: 100%;
-      height: 100%;
-      /* Shaka UI necesita posición relativa o absoluta en el contenedor */
-      position: relative; 
-    }
-
-    /* Panel de Logs (Debug) */
-    #debug-console {
-      position: fixed;
-      bottom: 0;
-      right: 0;
-      width: 100%;
-      height: 150px;
-      background: rgba(0, 0, 0, 0.9);
-      color: #00ff00;
-      font-family: monospace;
-      font-size: 12px;
-      padding: 10px;
-      border-top: 2px solid #333;
-      overflow-y: auto;
-      z-index: 9999;
-      display: none; /* Cambiar a block para ver errores */
-    }
-
-    /* RESPONSIVE */
-    @media (max-width: 768px) {
-      #layout { flex-direction: column-reverse; }
-      #sidebar { width: 100%; height: 50%; border-right: none; border-top: 1px solid #333; }
-      #main-content { height: 50%; }
-    }
+    body { background:#000; color:#fff; font-family:Arial; margin:0; padding:10px; }
+    #video-container { width:100%; height:60vh; background:#111; }
+    #log { background:#111; color:#0f0; font-size:12px; padding:10px; height:30vh; overflow-y:auto; margin-top:10px; }
+    button { margin:5px; padding:8px; }
   </style>
 </head>
 <body>
 
-<div id="layout">
-  <!-- Sidebar -->
-  <aside id="sidebar">
-    <div id="sidebar-header">
-      <span>Canales TV</span>
-      <small style="font-size:0.7em; color:#888;">v4.12</small>
-    </div>
-    <div id="channel-list">
-      <div style="padding:20px; text-align:center; color:#666;">
-        Cargando lista M3U...
-      </div>
-    </div>
-  </aside>
+<h3>TEST IPTV + SHAKA + CAST</h3>
 
-  <!-- Player -->
-  <main id="main-content">
-    <div id="video-container" data-shaka-player-container>
-      <!-- El atributo 'autoplay' inicia el video solo. 'data-shaka-player' marca el video para la UI -->
-      <video id="video" data-shaka-player autoplay style="width:100%;height:100%"></video>
-    </div>
-  </main>
+<div>
+  <button onclick="loadM3U()">Cargar M3U</button>
+  <select id="canales"></select>
+  <button onclick="playSelected()">Reproducir</button>
 </div>
 
-<div id="debug-console"></div>
+<div id="video-container" data-shaka-player-container>
+  <video id="video" data-shaka-player autoplay style="width:100%; height:100%;"></video>
+</div>
 
-<!-- 
-  LIBRERÍAS JS
-  Se cargan al final para no bloquear el renderizado visual inicial.
--->
-
-<!-- 1. Google Cast Framework (Última versión "evergreen" de Google) -->
-<script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
-
-<!-- 2. Shaka Player Compiled (Motor principal v4.12.6) -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.12.6/shaka-player.compiled.min.js"></script>
-
-<!-- 3. Shaka Player UI (Interfaz gráfica v4.12.6) -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.12.6/shaka-player.ui.min.js"></script>
+<div id="log"></div>
 
 <script>
-/**
- * CONFIGURACIÓN
- */
-const M3U_FILE = "https://raw.githubusercontent.com/paladini-maker/-/refs/heads/main/002.m3u"; // Ruta a tu archivo M3U
-let playerInstance = null; // Instancia global del player
+const M3U_FILE = "https://raw.githubusercontent.com/paladini-maker/-/refs/heads/main/002.m3u";
+let channels = [];
+let player;
 
-// Utilidad de log
-const debugConsole = document.getElementById('debug-console');
-function log(msg) {
-  console.log(`[IPTV] ${msg}`);
-  if (debugConsole.style.display !== 'none') {
-    debugConsole.innerText += `> ${msg}\n`;
-    debugConsole.scrollTop = debugConsole.scrollHeight;
-  }
+function l(x){
+  console.log(x);
+  const log = document.getElementById("log");
+  log.innerText += x + "\n";
+  log.scrollTop = log.scrollHeight;
 }
 
-/**
- * INICIALIZACIÓN DE LA APLICACIÓN
- */
-async function initApp() {
-  // 1. Instalar Polyfills (Esencial para compatibilidad de navegadores)
+document.addEventListener("DOMContentLoaded", async () => {
   shaka.polyfill.installAll();
 
-  // 2. Verificar soporte del navegador
-  if (!shaka.Player.isBrowserSupported()) {
-    alert('Error: Tu navegador no soporta las APIs de Shaka Player.');
-    return;
-  }
+  player = new shaka.Player();
+  await player.attach(document.getElementById("video"));
 
-  // 3. Inicializar Player y UI
-  await initPlayer();
-
-  // 4. Cargar lista de canales
-  loadM3U();
-}
-
-/**
- * CONFIGURACIÓN DE SHAKA PLAYER + UI + CAST
- */
-async function initPlayer() {
-  const video = document.getElementById('video');
-  const container = document.getElementById('video-container');
-
-  // Crear player SIN mediaElement (nuevo método desde Shaka 4.0)
-  const player = new shaka.Player();
-
-  // Adjuntar video manualmente: obligatorio para evitar el error "buffered undefined"
-  await player.attach(video);
-
-  // Crear UI Overlay en orden correcto (player, video, container)
-  const ui = new shaka.ui.Overlay(player, video, container);
-  const controls = ui.getControls();
-  playerInstance = player;
-
-  // UI config
+  // UI mínima
+  const ui = new shaka.ui.Overlay(player, document.getElementById("video"), document.getElementById("video-container"));
   ui.configure({
-    controlPanelElements: [
-      'play_pause',
-      'time_and_duration',
-      'spacer',
-      'mute',
-      'volume',
-      'fullscreen',
-      'overflow_menu'
-    ],
-    overflowMenuButtons: [
-      'cast',
-      'quality',
-      'language',
-      'playback_rate',
-      'picture_in_picture'
-    ],
+    controlPanelElements: ['play_pause', 'mute', 'volume', 'fullscreen', 'overflow_menu'],
+    overflowMenuButtons: ['cast', 'quality'],
     castReceiverAppId: 'CC1AD845'
   });
 
-  // Errores
-  player.addEventListener('error', (e) => {
-    const err = e.detail;
-    log(`ERROR ${err.code}: ${err.message}`);
-  });
+  player.addEventListener('error', e => l("ERROR: " + e.detail.code));
+  l("Shaka inicializado");
+});
 
-  log('Shaka Player 4.12 + UI + Cast inicializado correctamente.');
-}
-
-
-/**
- * LÓGICA DE M3U Y DRM
- */
-async function loadM3U() {
+async function loadM3U(){
+  l("Cargando M3U...");
   try {
-    const res = await fetch(M3U_FILE);
-    if (!res.ok) throw new Error("HTTP " + res.status);
-    const text = await res.text();
-    parseM3U(text);
-  } catch (e) {
-    log("Error cargando M3U: " + e.message);
-    document.getElementById('channel-list').innerHTML = 
-      `<div style="padding:20px; color: #ff5252;">Error cargando lista: ${e.message}</div>`;
+    const r = await fetch(M3U_FILE);
+    const t = await r.text();
+    parseM3U(t);
+  } catch(e){
+    l("Error cargando M3U: "+e.message);
   }
 }
 
-function parseM3U(content) {
-  const lines = content.split(/\r?\n/);
-  const channels = [];
-  let current = null;
+function parseM3U(txt){
+  const lines = txt.split(/\n/);
+  let tmp = null;
+  channels = [];
 
-  lines.forEach(line => {
-    line = line.trim();
-    if (!line) return;
+  for(const lineRaw of lines){
+    const line = lineRaw.trim();
 
-    if (line.startsWith("#EXTINF:")) {
-      // Extraer metadatos
-      const logoMatch = line.match(/tvg-logo="([^"]*)"/);
-      const logo = logoMatch ? logoMatch[1] : "";
-      // El nombre suele ser lo último después de la coma
-      const name = line.split(',').pop().trim();
-      
-      current = { name, logo, url: "", license: null };
-    } 
-    // Detección de llaves (Formatos comunes: #KODIPROP, #EXTVLCOPT o simplemente license_key)
-    else if (line.includes("license_key=") && current) {
-      // Extracción simple de kid:key
-      try {
-        const rawKey = line.substring(line.indexOf("license_key=") + 12).trim();
-        // Asumimos formato kid:key (ej. abcd:1234)
-        const parts = rawKey.split(":");
-        if (parts.length >= 2) {
-          current.license = {
-            [parts[0]]: parts[1] // { kid: key }
-          };
-        }
-      } catch (err) {
-        console.warn("Error parseando key", err);
-      }
+    if(line.startsWith("#EXTINF:")){
+      const name = line.split(",").pop().trim();
+      tmp = { name, url:"", license:null };
     }
-    else if (!line.startsWith("#") && current) {
-      current.url = line;
-      channels.push(current);
-      current = null;
+    else if(line.includes("license_key=") && tmp){
+      const raw = line.split("license_key=")[1].trim();
+      const parts = raw.split(":");
+      if(parts.length >= 2) tmp.license = { [parts[0]]: parts[1] };
+    }
+    else if(!line.startsWith("#") && tmp){
+      tmp.url = line;
+      channels.push(tmp);
+      tmp = null;
+    }
+  }
+
+  const sel = document.getElementById("canales");
+  sel.innerHTML = "";
+  channels.forEach((c,i)=>{
+    const opt = document.createElement("option");
+    opt.value = i;
+    opt.textContent = c.name + (c.license ? " [DRM]" : "");
+    sel.appendChild(opt);
+  });
+
+  l("Canales cargados: " + channels.length);
+}
+
+async function playSelected(){
+  const idx = document.getElementById("canales").value;
+  const ch = channels[idx];
+  if(!ch) return;
+
+  l("Reproduciendo: "+ch.name);
+
+  player.configure({
+    drm: {
+      clearKeys: ch.license || {}
     }
   });
 
-  renderChannels(channels);
-}
-
-function renderChannels(channels) {
-  const list = document.getElementById('channel-list');
-  list.innerHTML = "";
-
-  if (channels.length === 0) {
-    list.innerHTML = `<div style="padding:20px;">No se encontraron canales.</div>`;
-    return;
-  }
-
-  channels.forEach(ch => {
-    const el = document.createElement('div');
-    el.className = 'canal-item';
-    
-    // Fallback de imagen si no hay logo
-    const imgUrl = ch.logo || "https://via.placeholder.com/50x50/333/fff?text=TV";
-
-    el.innerHTML = `
-      <img src="${imgUrl}" onerror="this.style.display='none'">
-      <div class="canal-info">
-        <span class="canal-name">${ch.name}</span>
-        <span class="canal-status">${ch.license ? 'DRM' : 'Libre'}</span>
-      </div>
-    `;
-
-    el.onclick = () => playChannel(ch, el);
-    list.appendChild(el);
-  });
-}
-
-async function playChannel(channel, element) {
-  // UI Active State
-  document.querySelectorAll('.canal-item').forEach(i => i.classList.remove('active'));
-  element.classList.add('active');
-
-  if (!playerInstance) return;
-
-  log(`Cargando canal: ${channel.name}`);
-
-  // Configurar DRM ClearKey si existe
-  const drmConfig = channel.license ? { clearKeys: channel.license } : { clearKeys: {} };
-  
-  // Aplicar configuración antes de cargar
-  playerInstance.configure({
-    drm: drmConfig
-  });
-
   try {
-    // Unload previo para limpiar buffer
-    await playerInstance.unload();
-    // Cargar stream
-    await playerInstance.load(channel.url);
-    log("Reproducción iniciada.");
-  } catch (e) {
-    log("Error en reproducción: " + e.code);
-    console.error(e);
+    await player.unload();
+    await player.load(ch.url);
+    l("Reproducción OK");
+  } catch(e){
+    l("Error al reproducir: "+e.code);
   }
 }
-
-// Arrancar cuando el DOM esté listo
-document.addEventListener('DOMContentLoaded', initApp);
-
 </script>
+
 </body>
 </html>
