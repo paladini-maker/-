@@ -1,150 +1,294 @@
 <!DOCTYPE html>
-<html>
+<html lang="es">
 <head>
-  <meta charset="UTF-8">
-  <title>Test IPTV + Shaka + Cast (Simple)</title>
+  <meta charset="utf-8" />
+  <title>IPTV Test — Shaka + Cast (botón siempre visible)</title>
 
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.12.6/controls.min.css">
+  <!-- Shaka core (sin UI pesada) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.12.6/shaka-player.compiled.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.12.6/shaka-player.ui.min.js"></script>
 
-  <!-- Chromecast sender -->
+  <!-- Google Cast sender -->
   <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
 
   <style>
-    body { background:#000; color:#fff; margin:0; padding:10px; font-family:Arial; }
-    #video-container { width:100%; height:55vh; background:#111; }
-    #log { background:#111; color:#0f0; padding:10px; margin-top:10px; height:30vh; overflow-y:auto; font-size:12px; }
-    button, select { padding:6px; margin:5px; }
+    body { background:#000; color:#fff; font-family:Arial, sans-serif; margin:0; padding:12px; }
+    #video { width:100%; height:52vh; background:#111; display:block; }
+    #controls { margin:8px 0; }
+    select, button { padding:6px 10px; margin-right:8px; }
+    #castBtn { background:#0078d4; color:#fff; border:none; border-radius:4px; cursor:pointer; }
+    #castBtn.casting { background:#0a8b5a; }
+    #log { margin-top:10px; background:#0b0b0b; color:#0f0; padding:10px; height:34vh; overflow:auto; font-family:monospace; font-size:13px; white-space:pre-wrap; }
   </style>
 </head>
-
 <body>
 
-<h3>TEST IPTV + SHAKA + CAST</h3>
+<h3>IPTV Test — Shaka + Cast (botón siempre visible)</h3>
 
-<div>
-  <button onclick="loadM3U()">Cargar M3U</button>
-  <select id="canales"></select>
-  <button onclick="playSelected()">Reproducir</button>
+<div id="controls">
+  <button id="loadBtn">Cargar M3U</button>
+  <select id="canales" style="min-width:320px"></select>
+  <button id="playBtn">Reproducir</button>
+  <button id="castBtn">Cast</button>
 </div>
 
-<div id="video-container">
-  <video id="video" style="width:100%; height:100%;" autoplay></video>
-</div>
+<video id="video" controls autoplay></video>
 
 <div id="log"></div>
 
 <script>
-const M3U_FILE = "https://raw.githubusercontent.com/paladini-maker/-/refs/heads/main/002.m3u";
-let channels = [];
-let player;
+/* ----------------- CONFIG ----------------- */
+const M3U_URL = "https://raw.githubusercontent.com/paladini-maker/-/refs/heads/main/002.m3u";
 
-function log(x){
-  console.log(x);
-  const div = document.getElementById("log");
-  div.innerText += x + "\n";
-  div.scrollTop = div.scrollHeight;
+/* ----------------- ESTADO GLOBAL ----------------- */
+let shakaPlayer = null;        // instancia local de Shaka
+let shakaCastProxy = null;     // proxy de Shaka para casting
+let channels = [];             // lista parseada
+const logDiv = document.getElementById('log');
+
+/* ----------------- LOGGING ----------------- */
+function log(msg){
+  const t = new Date().toLocaleTimeString();
+  logDiv.innerText += `[${t}] ${msg}\n`;
+  logDiv.scrollTop = logDiv.scrollHeight;
+  console.log(msg);
 }
 
-document.addEventListener("DOMContentLoaded", async () => {
-  shaka.polyfill.installAll();
+/* ----------------- INICIALIZACION ----------------- */
+document.addEventListener('DOMContentLoaded', async () => {
+  try {
+    shaka.polyfill.installAll();
+    // Crear player sin pasar mediaElement (usamos attach)
+    shakaPlayer = new shaka.Player();
+    await shakaPlayer.attach(document.getElementById('video'));
+    shakaPlayer.addEventListener('error', e => {
+      const d = e.detail || {};
+      log("Shaka ERROR: " + (d.code || JSON.stringify(d)));
+    });
+    log("Shaka player inicializado y attach() aplicado.");
 
-  // Player base
-  player = new shaka.Player(document.getElementById("video"));
+    // Inicializar CastContext (Google Cast SDK)
+    if (window.cast && cast.framework) {
+      const context = cast.framework.CastContext.getInstance();
+      context.setOptions({
+        receiverApplicationId: 'CC1AD845', // App ID predeterminado
+        autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
+      });
+      // Crear Shaka CastProxy para ayudar a transferir claves ClearKey
+      try {
+        shakaCastProxy = new shaka.cast.CastProxy();
+        log("Shaka CastProxy creado.");
+      } catch (e) {
+        log("No se pudo crear CastProxy (no crítico): " + e);
+      }
 
-  // UI mínima, sin stats, sin overlays de WebGL
-  const ui = new shaka.ui.Overlay(
-    player,
-    document.getElementById("video-container"),
-    document.getElementById("video")
-  );
+      // Actualizar estado del botón cuando cambia la sesión
+      context.addEventListener(cast.framework.CastContextEventType.SESSION_STATE_CHANGED, (evt) => {
+        const btn = document.getElementById('castBtn');
+        if (evt.sessionState === cast.framework.SessionState.SESSION_STARTED ||
+            evt.sessionState === cast.framework.SessionState.SESSION_RESUMED) {
+          btn.classList.add('casting');
+          btn.innerText = "Cast: conectado";
+          log("Sesión Cast iniciada/resumida.");
+        } else {
+          btn.classList.remove('casting');
+          btn.innerText = "Cast";
+          log("Sesión Cast no activa.");
+        }
+      });
+    } else {
+      log("Cast framework no disponible en este navegador.");
+    }
 
-  ui.configure({
-    addSeekBar: true,
-    controlPanelElements: ['play_pause', 'mute', 'volume', 'fullscreen', 'overflow_menu'],
-    overflowMenuButtons: ['cast', 'quality'],
-    statistics: { showPanel: false },
-    castReceiverAppId: 'CC1AD845'
-  });
-
-  player.addEventListener('error', e => log("ERROR: " + e.detail.code));
-  log("Shaka inicializado.");
+  } catch(err) {
+    log("Error inicializando Shaka: " + err);
+  }
 });
 
-// ------------------------
-// CARGA DEL M3U
-// ------------------------
+/* ----------------- M3U PARSER ----------------- */
+document.getElementById('loadBtn').addEventListener('click', loadM3U);
 async function loadM3U(){
-  log("Cargando M3U...");
+  log("Cargando M3U desde: " + M3U_URL);
   try {
-    const r = await fetch(M3U_FILE);
-    const txt = await r.text();
-    parseM3U(txt);
-  } catch(e){
-    log("Error M3U: " + e.message);
+    const res = await fetch(M3U_URL);
+    if(!res.ok) throw new Error("HTTP " + res.status);
+    const txt = await res.text();
+    channels = parseM3U(txt);
+    renderChannelOptions(channels);
+    log(`M3U parseado — ${channels.length} canales encontrados.`);
+  } catch(e) {
+    log("Error cargando/parsing M3U: " + e);
   }
 }
 
-function parseM3U(text){
-  const lines = text.split(/\n/);
-  let tmp = null;
-  channels = [];
+function parseM3U(txt){
+  const lines = txt.split(/\r?\n/);
+  const out = [];
+  let cur = null;
 
-  for(const raw of lines){
+  for (let raw of lines){
     const line = raw.trim();
-    if(line.startsWith("#EXTINF:")){
-      let name = line.split(",").pop().trim();
-      tmp = { name, url:"", license:null };
-    }
-    else if(line.includes("license_key=") && tmp){
-      const lk = line.split("license_key=")[1].trim();
-      const parts = lk.split(":");
-      if(parts.length >= 2) tmp.license = { [parts[0]]: parts[1] };
-    }
-    else if(!line.startsWith("#") && tmp){
-      tmp.url = line.trim();
-      channels.push(tmp);
-      tmp=null;
+    if(!line) continue;
+
+    if (line.startsWith("#EXTINF:")) {
+      const name = line.split(",").pop().trim();
+      const logo = (line.match(/tvg-logo="([^"]+)"/)||[])[1] || "";
+      cur = { name, logo, url: "", license: null };
+    } else if (line.includes("license_key=") && cur) {
+      const rawKey = line.split("license_key=")[1].trim();
+      const [kid, key] = rawKey.split(":");
+      if (kid && key) cur.license = { [kid]: key };
+    } else if (!line.startsWith("#") && cur) {
+      cur.url = line;
+      out.push(cur);
+      cur = null;
     }
   }
+  return out;
+}
 
-  const sel = document.getElementById("canales");
+function renderChannelOptions(list){
+  const sel = document.getElementById('canales');
   sel.innerHTML = "";
-  channels.forEach((c,i)=>{
-    const opt = document.createElement("option");
+  list.forEach((ch, i) => {
+    const opt = document.createElement('option');
     opt.value = i;
-    opt.textContent = c.name + (c.license ? " [DRM]" : "");
+    opt.text = `${ch.name} ${ch.license ? '[DRM]' : ''}`;
     sel.appendChild(opt);
   });
-
-  log("Canales cargados: " + channels.length);
 }
 
-// ------------------------
-// REPRODUCIR
-// ------------------------
+/* ----------------- REPRODUCCION LOCAL vs CAST ----------------- */
+document.getElementById('playBtn').addEventListener('click', playSelected);
+
 async function playSelected(){
-  const idx = document.getElementById("canales").value;
+  const sel = document.getElementById('canales');
+  const idx = parseInt(sel.value, 10);
+  if (isNaN(idx) || !channels[idx]) { log("Seleccioná un canal válido."); return; }
   const ch = channels[idx];
-  if(!ch) return;
+  log("Reproduciendo: " + ch.name + " → " + ch.url);
 
-  log("Reproduciendo: " + ch.name);
-
-  const drmConfig = ch.license ? { clearKeys: ch.license } : {};
-
-  player.configure({ drm: drmConfig });
+  // Configurar DRM ClearKey si existe
+  const drmConfig = ch.license ? { clearKeys: ch.license } : { clearKeys: {} };
 
   try {
-    await player.unload();
-    await player.load(ch.url);
-    log("Reproducción OK.");
-  } catch(err){
-    log("Error: " + err.code);
+    // Si hay sesión Cast activa y tenemos proxy, intentar reproducir en Chromecast vía proxy
+    const context = (window.cast && cast.framework) ? cast.framework.CastContext.getInstance() : null;
+    const session = context ? context.getCurrentSession() : null;
+    const isCasting = !!(session && session.getSessionId());
+
+    if (isCasting && shakaCastProxy && typeof shakaCastProxy.getPlayer === 'function') {
+      log("Sesión Cast detectada — intentando reproducir vía CastProxy (transfiriendo claves).");
+      // Configuramos el player del proxy y lo cargamos para el cast
+      const castPlayer = shakaCastProxy.getPlayer();
+      castPlayer.configure({ drm: drmConfig });
+
+      try {
+        await castPlayer.unload();
+      } catch(e){ /* ignore */ }
+
+      // Cargar en el receptor (CastProxy usa internals para transferir claves)
+      await castPlayer.load(ch.url);
+      log("Carga iniciada en Chromecast vía CastProxy.");
+      return;
+    }
+
+    // Si no está casteando o no existe proxy: reproducir localmente en PC
+    shakaPlayer.configure({ drm: drmConfig });
+    await shakaPlayer.unload();
+    await shakaPlayer.load(ch.url);
+    log("Reproducción local iniciada correctamente.");
+
+  } catch (err) {
+    // Mostrar detalle y posible razón (ej. codecs no soportados)
+    if (err && err.code) {
+      log(`Shaka error code: ${err.code} — ${err.message || ''}`);
+    } else {
+      log("Error reproducir: " + (err && err.toString ? err.toString() : JSON.stringify(err)));
+    }
+
+    // Diagnóstico adicional: detectar soporte de codecs si es aplicable
+    try {
+      const manifestUrl = ch.url;
+      if (manifestUrl && manifestUrl.endsWith('.mpd')) {
+        await probeMPDForCodecs(manifestUrl);
+      }
+    } catch(e) {
+      // ignore
+    }
   }
 }
 
-</script>
+/* ----------------- BOTON CAST (siempre visible) ----------------- */
+document.getElementById('castBtn').addEventListener('click', async () => {
+  try {
+    if (!(window.cast && cast.framework)) {
+      log("Cast SDK no disponible en este navegador.");
+      return;
+    }
+    const ctx = cast.framework.CastContext.getInstance();
+    const session = ctx.getCurrentSession();
+    if (!session) {
+      log("Solicitando sesión Cast...");
+      await ctx.requestSession(); // abrir diálogo de dispositivos
+      // la actualización del botón será manejada por el listener SESSION_STATE_CHANGED
+    } else {
+      log("Sesión Cast ya activa (terminando sesión).");
+      session.endSession(true);
+    }
+  } catch(e){
+    log("Error en requestSession: " + e);
+  }
+});
 
+/* ----------------- DIAGNOSTICO: Extraer códecs del MPD (simple) ----------------- */
+async function probeMPDForCodecs(mpdUrl){
+  log("Probing MPD para codecs: " + mpdUrl);
+  try {
+    const r = await fetch(mpdUrl);
+    if (!r.ok) { log("No se pudo descargar MPD: HTTP " + r.status); return; }
+    const txt = await r.text();
+    // buscar codecs en <Representation ... codec="..."> o codec="..."
+    const codecMatches = [...txt.matchAll(/codecs="([^"]+)"/g)].map(m => m[1]);
+    const uniq = Array.from(new Set(codecMatches));
+    log("Codecs encontrados en MPD: " + (uniq.length ? uniq.join(", ") : "ninguno detectado"));
+    // probar MediaCapabilities si existe (en browsers compatibles)
+    if (navigator.mediaCapabilities && uniq.length) {
+      for (const codecs of uniq) {
+        const parts = codecs.split(',');
+        const videoCodec = parts.find(p => p.includes('avc')||p.includes('vp')||p.includes('hev')||p.includes('av1')) || parts[0];
+        const audioCodec = parts.find(p => p.includes('mp4a')||p.includes('mp3')||p.includes('opus')) || '';
+        const mediaConfig = {
+          type: 'file',
+          audio: audioCodec ? { contentType: `audio/mp4; codecs="${audioCodec}"` } : undefined,
+          video: { contentType: `video/mp4; codecs="${videoCodec}"`, width: 1920, height: 1080, bitrate: 5000000, framerate: 30 }
+        };
+        try {
+          // mediaCapabilities.decodingInfo may help en Chrome
+          if (navigator.mediaCapabilities && navigator.mediaCapabilities.decodingInfo) {
+            const info = await navigator.mediaCapabilities.decodingInfo(mediaConfig);
+            log(`MediaCapabilities - video ${videoCodec} supported: ${info.supported}, smooth:${info.smooth}, powerEfficient:${info.powerEfficient}`);
+          }
+        } catch(e){
+          // no todos los navegadores soportan mediaCapabilities para ese tipo
+          log("mediaCapabilities check falló: " + e);
+        }
+      }
+    }
+  } catch(e){
+    log("Error probing MPD: " + e);
+  }
+}
+
+/* ----------------- Helper: isCasting (opcional) ----------------- */
+function isCastActive(){
+  try {
+    if (window.cast && cast.framework) {
+      const s = cast.framework.CastContext.getInstance().getCurrentSession();
+      return !!(s && s.getSessionId && s.getSessionId());
+    }
+  } catch(e){}
+  return false;
+}
+</script>
 </body>
 </html>
