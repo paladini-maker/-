@@ -27,7 +27,15 @@
 <body>
 
   <h2>Sender — Test Chromecast + Shaka + ClearKey</h2>
-
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  if (window.chrome && chrome.cast && chrome.cast.initialize) {
+    console.log("Cast API lista.");
+  } else {
+    console.warn("Esperando Cast API...");
+  }
+});
+</script>
   <!-- Botón Cast -->
   <google-cast-launcher id="castbutton" style="height:48px;width:48px;"></google-cast-launcher>
 
