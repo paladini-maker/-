@@ -1,40 +1,302 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Shaka Player + Cast Sender</title>
-  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.12.3/shaka-player.compiled.js"></script>
-  <script defer src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
-  <style>
-    body { background: #111; color: #eee; font-family: sans-serif; margin: 0; padding: 0; }
-    #video { width: 100%; max-height: 60vh; background: #000; }
-    .controls { padding: 1rem; }
-    button { padding: .6rem 1rem; margin-right: .5rem; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TV Pública Argentina - Shaka Player con Cast</title>
+    <!-- Shaka Player -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.12/shaka-player.ui.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.12/controls.min.css">
+    <!-- Google Cast Sender SDK -->
+    <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js"></script>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #74b9ff, #0984e3);
+            color: #2d3436;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .logo {
+            max-width: 200px;
+            height: auto;
+            margin-bottom: 15px;
+        }
+        h1 {
+            color: #2d3436;
+            margin: 0;
+            font-size: 2.2em;
+        }
+        .subtitle {
+            color: #636e72;
+            font-size: 1.1em;
+        }
+        #cast-button {
+            background: #e17055;
+            color: white;
+            border: none;
+            padding: 12px 25px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 15px 0;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        #cast-button:hover {
+            background: #d63031;
+            transform: translateY(-2px);
+        }
+        #video-container {
+            position: relative;
+            width: 100%;
+            max-width: 800px;
+            margin: 20px auto;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        }
+        #video {
+            width: 100%;
+            height: auto;
+            background: #000;
+        }
+        .channel-info {
+            background: #dfe6e9;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+            text-align: center;
+        }
+        .status {
+            margin-top: 15px;
+            padding: 10px;
+            border-radius: 5px;
+            text-align: center;
+            font-weight: bold;
+        }
+        .status.connected {
+            background: #55efc4;
+            color: #00b894;
+        }
+        .status.disconnected {
+            background: #fab1a0;
+            color: #d63031;
+        }
+        footer {
+            text-align: center;
+            margin-top: 30px;
+            color: #636e72;
+            font-size: 0.9em;
+        }
+    </style>
 </head>
 <body>
-  <video id="video" controls autoplay muted></video>
-  <div class="controls">
-    <button id="playLocal">Reproducir local</button>
-    <button id="castButton">Enviar al Chromecast</button>
-  </div>
+    <div class="container">
+        <header>
+            <img src="https://github.com/masterentertainment/listas/blob/main/logos/C7TVP.png?raw=true" 
+                 alt="TV Pública Logo" class="logo" onerror="this.style.display='none'">
+            <h1>TV Pública Argentina</h1>
+            <div class="subtitle">Canal 7 - Transmisión con Shaka Player y Google Cast</div>
+        </header>
 
-  <script defer>
-    window.addEventListener("load", async () => {
-      if (!shaka.Player.isBrowserSupported()) {
-        console.error("Shaka Player no soportado en este navegador.");
-        return;
-      }
+        <div style="text-align: center;">
+            <button id="cast-button" style="display: none;">
+                <span>🔄 Transmitir a Chromecast</span>
+            </button>
+        </div>
 
-      const video = document.getElementById("video");
-      const player = new shaka.Player(video);
+        <div id="status-container"></div>
 
-      player.addEventListener("error", (e) => console.error("Shaka error:", e.detail));
+        <div id="video-container">
+            <video id="video" 
+                   width="100%" 
+                   controls 
+                   autoplay
+                   data-shaka-player-container 
+                   data-shaka-player-cast-receiver="A5B2A5C9">
+            </video>
+        </div>
 
-      const manifest = "https://storage.googleapis.com/shaka-demo-assets/angel-one/dash.mpd";
+        <div class="channel-info">
+            <strong>TV Pública Argentina</strong> - Canal 7<br>
+            Grupo: Argentina | Calidad: HD
+        </div>
 
-      async function safeLoad(url) {
+        <footer>
+            Shaka Player con Google Cast y soporte ClearKey DRM
+        </footer>
+    </div>
+
+    <script>
+        // Configuración del stream de TV Pública Argentina
+        const manifestUri = 'https://cdn.cvattv.com.ar/live/c6eds/Canal7/SA_Live_dash_enc/Canal7.mpd';
+        
+        // Configuración ClearKey para TV Pública
+        const clearKeyConfig = {
+            'cc8c82ac2ec7e9799527c29db7354e81': 'cc4aae173dd2ef17ae26be3f7ae87662'
+        };
+
+        function initApp() {
+            // Instalar polyfills
+            shaka.polyfill.installAll();
+            
+            // Verificar compatibilidad del navegador
+            if (!shaka.Player.isBrowserSupported()) {
+                showError('Tu navegador no es compatible con Shaka Player');
+                return;
+            }
+            
+            // Inicializar player y Cast
+            initPlayer();
+            initializeCast();
+        }
+
+        function initPlayer() {
+            const video = document.getElementById('video');
+            const player = new shaka.Player(video);
+            
+            // Configurar UI de Shaka
+            const ui = new shaka.ui.Overlay(player, video.parentElement, video);
+            const controls = ui.getControls();
+            
+            // Guardar referencia global
+            window.player = player;
+            window.ui = ui;
+
+            // Configurar ClearKey DRM para TV Pública
+            player.configure({
+                drm: {
+                    clearKeys: clearKeyConfig,
+                    advanced: {
+                        'org.w3.clearkey': {
+                            'videoRobustness': 'SW_SECURE_CRYPTO',
+                            'audioRobustness': 'SW_SECURE_CRYPTO'
+                        }
+                    }
+                },
+                streaming: {
+                    bufferingGoal: 30,
+                    rebufferingGoal: 8,
+                    bufferBehind: 30,
+                    ignoreTextStreamFailures: true
+                },
+                manifest: {
+                    dash: {
+                        ignoreMinBufferTime: true
+                    }
+                }
+            });
+
+            // Manejar errores
+            player.addEventListener('error', (event) => {
+                console.error('Error de Shaka Player:', event.detail);
+                showError('Error al cargar el stream: ' + event.detail.message);
+            });
+
+            // Eventos de estado del player
+            player.addEventListener('loading', () => {
+                updateStatus('Cargando stream...', 'loading');
+            });
+
+            player.addEventListener('loaded', () => {
+                updateStatus('Stream cargado correctamente', 'success');
+            });
+
+            // Cargar el stream
+            player.load(manifestUri).then(() => {
+                console.log('Stream de TV Pública cargado exitosamente');
+                updateStatus('Transmitiendo: TV Pública Argentina', 'success');
+            }).catch(onError);
+        }
+
+        function initializeCast() {
+            // Configurar contexto de Cast
+            const castContext = cast.framework.CastContext.getInstance();
+            
+            castContext.setOptions({
+                receiverApplicationId: 'A5B2A5C9', // App ID para desarrollo
+                autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
+            });
+
+            const castButton = document.getElementById('cast-button');
+            castButton.style.display = 'inline-block';
+            
+            // Crear botón de Cast
+            new cast.framework.CastButton(castButton);
+
+            // Escuchar cambios de estado de Cast
+            castContext.addEventListener(
+                cast.framework.CastContextEventType.SESSION_STATE_CHANGED,
+                (event) => {
+                    switch (event.sessionState) {
+                        case cast.framework.SessionState.SESSION_STARTED:
+                            updateStatus('Conectado a Chromecast', 'connected');
+                            break;
+                        case cast.framework.SessionState.SESSION_ENDED:
+                            updateStatus('Desconectado de Chromecast', 'disconnected');
+                            break;
+                    }
+                }
+            );
+
+            // Configurar el receptor de mensajes personalizados
+            const castSession = castContext.getCurrentSession();
+            if (castSession) {
+                castSession.addMessageListener('urn:x-cast:com.custom.shaka', (event) => {
+                    console.log('Mensaje recibido del receptor:', event);
+                });
+            }
+        }
+
+        function updateStatus(message, type) {
+            const statusContainer = document.getElementById('status-container');
+            statusContainer.innerHTML = `
+                <div class="status ${type}">
+                    ${message}
+                </div>
+            `;
+        }
+
+        function showError(message) {
+            updateStatus(message, 'error');
+            console.error(message);
+        }
+
+        function onError(error) {
+            console.error('Error código:', error.code, 'Detalles:', error);
+            showError('Error: ' + (error.detail?.message || error.message || 'Error desconocido'));
+        }
+
+        // Inicializar cuando el DOM esté listo
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initApp);
+        } else {
+            initApp();
+        }
+
+        // Manejar errores no capturados
+        window.addEventListener('error', (event) => {
+            console.error('Error global:', event.error);
+            showError('Error inesperado: ' + event.error?.message);
+        });
+    </script>
+</body>
+  </html>      async function safeLoad(url) {
         try {
           await player.load(url);
           console.log("Contenido cargado correctamente.");
