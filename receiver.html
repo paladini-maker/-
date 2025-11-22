@@ -1,180 +1,30 @@
 <!DOCTYPE html>
-<html lang="es">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <title>TV Pública - Receptor Cast</title>
-    <!-- Google Cast Receiver SDK -->
+    <title>Mi Custom Receiver</title>
     <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
-    <!-- Shaka Player -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.12/shaka-player.compiled.js"></script>
     <style>
-        body {
-            margin: 0;
-            padding: 0;
-            background: #000;
-            font-family: Arial, sans-serif;
-        }
+        body { overflow: hidden; background: #000; }
         cast-media-player {
-            --progress-color: #e17055;
-            --splash-image: url('https://github.com/masterentertainment/listas/blob/main/logos/C7TVP.png?raw=true');
-            --splash-size: cover;
-        }
-        .logo {
-            position: absolute;
-            top: 20px;
-            left: 20px;
-            max-width: 100px;
-            z-index: 1000;
+            --splash-image: url("tu-logo.png");
+            --progress-color: #FF0000; /* Personaliza la barra de progreso */
         }
     </style>
 </head>
 <body>
-    <!-- Logo de TV Pública -->
-    <img src="https://github.com/masterentertainment/listas/blob/main/logos/C7TVP.png?raw=true" 
-         alt="TV Pública" 
-         class="logo"
-         onerror="this.style.display='none'">
-    
-    <!-- Player de Cast -->
     <cast-media-player></cast-media-player>
 
     <script>
-        // Inicializar contexto del receptor
+        // Inicialización del contexto
         const context = cast.framework.CastReceiverContext.getInstance();
         const playerManager = context.getPlayerManager();
 
-        // Configuración ClearKey para TV Pública
-        const CLEAR_KEY_CONFIG = {
-            'cc8c82ac2ec7e9799527c29db7354e81': 'cc4aae173dd2ef17ae26be3f7ae87662'
-        };
+        // Opcional: Configurar opciones de reproducción
+        const options = new cast.framework.CastReceiverOptions();
+        options.maxInactivity = 3600; // Segundos antes de cerrarse por inactividad
 
-        // Interceptar mensajes LOAD para configurar DRM
-        playerManager.setMessageInterceptor(
-            cast.framework.messages.MessageType.LOAD,
-            loadRequestData => {
-                console.log('Interceptando carga para TV Pública');
-                
-                if (loadRequestData.media) {
-                    // Configurar información DRM ClearKey
-                    loadRequestData.media.customData = {
-                        'shaka': {
-                            'drm': {
-                                'clearKeys': CLEAR_KEY_CONFIG,
-                                'advanced': {
-                                    'org.w3.clearkey': {
-                                        'videoRobustness': 'SW_SECURE_CRYPTO',
-                                        'audioRobustness': 'SW_SECURE_CRYPTO'
-                                    }
-                                }
-                            },
-                            'streaming': {
-                                'bufferingGoal': 30,
-                                'rebufferingGoal': 8,
-                                'bufferBehind': 30
-                            }
-                        }
-                    };
-
-                    // Configurar metadatos del stream
-                    loadRequestData.media.metadata = {
-                        title: 'TV Pública Argentina',
-                        subtitle: 'Canal 7 - Transmisión en vivo',
-                        images: [
-                            {
-                                url: 'https://github.com/masterentertainment/listas/blob/main/logos/C7TVP.png?raw=true'
-                            }
-                        ]
-                    };
-                }
-                return loadRequestData;
-            }
-        );
-
-        // Configurar manejador de licencias DRM
-        playerManager.setMediaPlaybackInfoHandler((loadRequestData, playbackConfig) => {
-            // Configurar Shaka Player para ClearKey
-            if (playbackConfig && window.shaka) {
-                playbackConfig.licenseRequestHandler = (request) => {
-                    console.log('Manejando solicitud de licencia ClearKey');
-                };
-            }
-            return playbackConfig;
-        });
-
-        // Manejar eventos de errores
-        playerManager.addEventListener(
-            cast.framework.events.EventType.ERROR,
-            (event) => {
-                console.error('Error en el receptor Cast:', event);
-                
-                // Enviar estado de error al sender
-                if (context.getApplicationData()) {
-                    context.sendCustomMessage('urn:x-cast:com.custom.shaka', {
-                        type: 'error',
-                        message: event.detail || 'Error en la reproducción'
-                    });
-                }
-            }
-        );
-
-        // Evento cuando el media está cargado
-        playerManager.addEventListener(
-            cast.framework.events.EventType.MEDIA_STATUS,
-            (event) => {
-                console.log('Estado del media:', event);
-            }
-        );
-
-        // Configurar opciones del receptor
-        const castReceiverOptions = new cast.framework.CastReceiverOptions();
-        
-        // Configuración para desarrollo
-        castReceiverOptions.disableIdleTimeout = true;
-        castReceiverOptions.maxInactivity = 3600; // 1 hora para desarrollo
-        
-        // Configurar namespace personalizado
-        castReceiverOptions.customNamespaces = {
-            'urn:x-cast:com.custom.shaka': cast.framework.system.MessageType.JSON
-        };
-
-        // Configuración de playback
-        const playbackConfig = Object.assign(
-            new cast.framework.PlaybackConfig(),
-            {
-                autoPlay: true,
-                preloadTime: 10,
-                bufferingStrategy: cast.framework.messages.BufferingStrategy.STREAMING
-            }
-        );
-
-        // Inicializar Shaka Player para ClearKey
-        if (window.shaka) {
-            shaka.polyfill.installAll();
-        }
-
-        // Iniciar el contexto del receptor
-        context.start({ 
-            playbackConfig: playbackConfig,
-            castReceiverOptions: castReceiverOptions
-        });
-
-        console.log('Receptor Cast para TV Pública inicializado');
-
-        // Manejar mensajes personalizados del sender
-        context.addCustomMessageListener('urn:x-cast:com.custom.shaka', (event) => {
-            console.log('Mensaje personalizado recibido:', event);
-        });
-
+        // Iniciar la aplicación
+        context.start(options);
     </script>
-</body>
-</html>        }
-
-        await shakaPlayer.load(streamUrl);
-        return loadRequest;
-      }
-    );
-
-    context.start();
-  </script>
 </body>
 </html>
