@@ -14,6 +14,70 @@
 
   <style>
     body { margin: 0; background: #111; }
+    #container { width: 100%; height: 100vh; }
+    video { width: 100%; height: 100%; }
+  </style>
+</head>
+<body>
+
+  <div id="container">
+    <video id="video" autoplay muted></video>
+  </div>
+
+  <script>
+    // Inicializar Cast
+    window.__onGCastApiAvailable = function(isAvailable) {
+      if (isAvailable) {
+        cast.framework.CastContext.getInstance().setOptions({
+          receiverApplicationId: "86E6AFAF",
+          autoJoinPolicy: cast.framework.AutoJoinPolicy.ORIGIN_SCOPED
+        });
+      }
+    };
+  </script>
+
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      const video = document.getElementById("video");
+      const container = document.getElementById("container");
+
+      // Crear UI
+      const ui = new shaka.ui.Overlay(shaka.Player, container, video);
+      ui.configure({
+        addBigPlayButton: true,
+        controlPanelElements: [
+          "play_pause",
+          "volume",
+          "time_and_duration",
+          "fullscreen",
+          "cast" // 👉 Botón Cast en la UI
+        ]
+      });
+
+      window.player = ui.getControls().getPlayer();
+    });
+  </script>
+
+  <script src="sender.js"></script>
+</body>
+</html>
+```html
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sender Shaka + ClearKey + Cast</title>
+
+  <!-- Shaka UI -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.12.3/shaka-player.ui.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.12.3/controls.css">
+
+  <!-- Google Cast Sender SDK -->
+  <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
+
+  <style>
+    body { margin: 0; background: #111; }
     #video { width: 100%; height: 60vh; }
     #container { width: 100%; height: 60vh; }
   </style>
@@ -31,7 +95,8 @@
         cast.framework.CastContext.getInstance().setOptions({
           receiverApplicationId: "86E6AFAF", // 👉 Tu App ID custom
           autoJoinPolicy: cast.framework.AutoJoinPolicy.ORIGIN_SCOPED
-        })
+        });
+      }
     };
   </script>
 
