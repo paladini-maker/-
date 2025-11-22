@@ -1,92 +1,40 @@
 <!DOCTYPE html>
-<html>
+<html lang="es">
 <head>
-  <meta charset="utf-8" />
-  <title>Sender — Cast Test</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sender Shaka + ClearKey + Cast</title>
 
-  <!-- Google Cast Sender Library -->
+  <!-- Shaka UI -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.12.3/shaka-player.ui.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.12.3/controls.css">
+
+  <!-- Google Cast Sender SDK -->
   <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
 
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      background: #111;
-      color: #eee;
-      padding: 20px;
-      text-align: center;
-    }
-    button {
-      padding: 12px 20px;
-      margin-top: 20px;
-      font-size: 16px;
-      border-radius: 8px;
-      cursor: pointer;
-    }
+    body { margin: 0; background: #111; }
+    #video { width: 100%; height: 60vh; }
+    #container { width: 100%; height: 60vh; }
   </style>
 </head>
 <body>
 
-  <h2>Sender — Test Chromecast + Shaka + ClearKey</h2>
-
-  <!-- Botón Cast -->
-  <google-cast-launcher id="castbutton"
-    style="height:48px;width:48px; display:block; margin: 20px auto;">
-  </google-cast-launcher>
-
-  <br><br>
-
-  <button onclick="loadDemo()">Enviar MPD al Receiver</button>
+  <div id="container">
+    <video id="video" autoplay muted></video>
+  </div>
 
   <script>
-
-    // FIX: Esperar a que la API esté 100% lista y VOLVER a inicializar el CastContext
+    // Inicializar Cast
     window.__onGCastApiAvailable = function(isAvailable) {
       if (isAvailable) {
-        console.log("Cast API OK, inicializando context…");
-        initializeCast();
-      } else {
-        console.warn("Cast API no disponible aún…");
-      }
+        cast.framework.CastContext.getInstance().setOptions({
+          receiverApplicationId: "86E6AFAF", // 👉 Tu App ID custom
+          autoJoinPolicy: cast.framework.AutoJoinPolicy.ORIGIN_SCOPED
+        })
     };
-
-    function initializeCast() {
-      const context = cast.framework.CastContext.getInstance();
-      context.setOptions({
-        receiverApplicationId: "86E6AFAF",
-        autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED,
-      });
-
-      // este timeout soluciona el bug específico de GitHub Pages
-      setTimeout(() => {
-        const btn = document.getElementById("castbutton");
-        btn.style.display = "block";  // fuerza repaint
-        console.log("Botón Cast formado correctamente.");
-      }, 300);
-    }
-
-
-    function loadDemo() {
-      const context = cast.framework.CastContext.getInstance();
-      const session = context.getCurrentSession();
-
-      if (!session) {
-        alert("Primero conectate a un Chromecast con el botón Cast.");
-        return;
-      }
-
-      const mediaInfo = new chrome.cast.media.MediaInfo(
-        "https://storage.googleapis.com/shaka-demo-assets/angel-one/dash.mpd",
-        "application/dash+xml"
-      );
-
-      const request = new chrome.cast.media.LoadRequest(mediaInfo);
-
-      session.loadMedia(request).then(
-        () => console.log("Enviado correctamente."),
-        (err) => console.error("Error al enviar:", err)
-      );
-    }
   </script>
 
+  <script src="sender.js"></script>
 </body>
 </html>
