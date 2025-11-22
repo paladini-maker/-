@@ -99,6 +99,40 @@
 
         // Esperar a que el DOM esté listo
         document.addEventListener('DOMContentLoaded', init);
+        // Agrega esto al final de tu script para ver qué pasa en pantalla
+setTimeout(() => {
+    // Verificar si la API de Cast se cargó
+    if (!window.cast) {
+        alert("ERROR CRÍTICO: El script de Google Cast no se cargó. Revisa tu conexión a internet o bloqueadores de anuncios.");
+        return;
+    }
+
+    const context = cast.framework.CastContext.getInstance();
+    const state = context.getCastState();
+    
+    // Traducir el estado para ti
+    let estadoTexto = "";
+    switch(state) {
+        case 'NO_DEVICES_AVAILABLE':
+            estadoTexto = "NO SE ENCONTRARON DISPOSITIVOS. (¿Estás en la misma Wi-Fi?)";
+            break;
+        case 'NOT_CONNECTED':
+            estadoTexto = "DISPOSITIVOS ENCONTRADOS. El botón debería ser visible.";
+            break;
+        case 'CONNECTING':
+            estadoTexto = "CONECTANDO...";
+            break;
+        case 'CONNECTED':
+            estadoTexto = "CONECTADO.";
+            break;
+        default:
+            estadoTexto = state;
+    }
+    
+    alert("Estado del Cast: " + estadoTexto);
+
+}, 3000); // Espera 3 segundos a que todo cargue
     </script>
+
 </body>
 </html>
