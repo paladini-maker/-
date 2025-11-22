@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Shaka ClearKey Receiver</title>
+
+<!-- CAF receiver framework -->
+<script src="https://www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
+
+<!-- Shaka Player -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.12.3/shaka-player.compiled.js"></script>
+
+<style>
+  body { margin:0; background:#000; color:#fff; font-family:Arial, sans-serif; }
+  #video{ width:100vw; height:100vh; background:#000; display:block; }
+  #log { position:fixed; left:8px; top:8px; color:#0f0; font-size:12px; z-index:999; background:rgba(0,0,0,0.4); padding:6px; border-radius:6px; max-width:40vw; }
+</style>
+</head>
+<body>
+<video id="video" playsinline></video>
+<div id="log">Receiver inicializando...</div>
+
+<script>
+(function () {
+  const logEl = document.getElementById('log');
+  function log(...args) { console.log(...args); logEl.textContent = args.join(' '); }
+
+  // helper: hex -> base64
+  function hexToBase64(hex) {
+    if (!hex) return "";
+    hex = hex.replace(/\s+/g,"").replace(/^0x/, "");
+    if (hex.length % 2 !== 0) hex = "0" + hex;
+    const bytes = hex.match(/.{1,2}/g).map(b => parseInt(b,16));
+    let binary = "";
+    for (let i=0;i<bytes.length;i++) binary += String.fromCharCode(bytes[i]);
+    return btoa(binary);
+  }
+
+  // helper: base64 -> hex
+  function base64ToHex(b64) {
+    if (!b64) return "";
+    const bin = atob(b64);
+    let hex = "";
+    for (let i=0;i<bin.length;i++){
+      let h = bin.charCodeAt(i).toString(16);
+      if (h.length === 1) h = "0" + h;
+      hex += h;
+    }
+    return hex;
+  }
+
+  // Init Shaka Player
+  shaka.polyfill.installAll();
+  let shakaPlayer;
+  const video = document.getElementById('video');
+
+  if (!shaka.Player.isBrowserSupported()) {
+    log("Shaka no soportado en este navegador del receiver.");
+  } else {
+    shakaPlayer = new shaka.Player(video);
+    shakaPlayer.addEventListener('error', e => {
+      console.error("Shaka error", e);
+      log("Shaka error: " + (e.detail && e.detail.code ? e.detail.code : JSON.stringify(e)));
+    });
+    log("Shaka listo en receiver");
+  }
+
+  // CAF setup
+  const context = cast.framework.CastReceiverContext.getInstance();
+  const playerManager = context.getPlayerManager();
+
+  // Interceptor LOAD: cuando el sender manda load, lo convertimos a carga de Shaka
+  playerManager.setMessageInterceptor(cast.framework.messages.MessageType.LOAD, request => {
+    // request.media: contiene contentId (URL), metadata y customData
+    try {
+      const media = request.media || {};
+      const contentId = media.contentId || media.contentUrl || null;
+      const customData = media.customData || {};
+      log("LOAD recibido: " + contentId);
+
+      if (!contentId) {
+        console.warn("No contentId en LOAD");
+        return request; // dejar que CAF gestione (fallback)
+      }
+
+      // Extraer clearkeys desde customData en formas comunes:
+      // customData.drm.clearkeys  OR customData.clearkeys  OR media.customData.clearkeys
+      let clearkeys = {};
+      if (customData.drm && customData.drm.clearkeys) clearkeys = customData.drm.clearkeys;
+      else if (customData.clearkeys) clearkeys = customData.clearkeys;
+      else if (media.customData && media.customData.clearkeys) clearkeys = media.customData.clearkeys;
+
+      // Build Shaka clearKeys mapping (kid->key). Try to accept hex or base64 sent by sender.
+      const shakaClearKeys = {};
+
+      for (const k in clearkeys) {
+        const v = clearkeys[k];
+        // k can be hex or base64, v likewise. Normalize:
+        let kidHex = k, keyHex = v;
+
+        // If kid looks base64 (contains +,/ or ends with =), convert to hex
+        if (/[+/=]/.test(k)) {
+          kidHex = base64ToHex(k);
+        } else {
+          kidHex = k.replace(/^0x/, '').toLowerCase();
+        }
+        if (/[+/=]/.test(v)) {
+          keyHex = base64ToHex(v);
+        } else {
+          keyHex = v.replace(/^0x/, '').toLowerCase();
+        }
+
+        // Add both hex-keyed and base64-keyed entries (max compatibility)
+        shakaClearKeys[kidHex] = keyHex;
+        shakaClearKeys[hexToBase64(kidHex)] = hexToBase64(keyHex);
+      }
+
+      // Stop any existing playback in Shaka
+      (async () => {
+        try {
+          if (!shakaPlayer) {
+            log("Shaka no inicializado");
+            return;
+          }
+          // Configure clear keys
+          if (Object.keys(shakaClearKeys).length) {
+            // Shaka expects keys in base64 OR hex depending on build. We set both kinds:
+            // set drm.clearKeys to hex-keyed values (most common in sender examples)
+            const cfg = { drm: { clearKeys: {} } };
+            for (const kid in shakaClearKeys) {
+              const val = shakaClearKeys[kid];
+              // push hex if kid is hex (no +/=)
+              if (!/[+/=]/.test(kid)) {
+                cfg.drm.clearKeys[kid] = val;
+              }
+            }
+            // Also set a customData field with base64 mapping so PEM/EME implementations may pick it
+            if (!cfg.drm) cfg.drm = {};
+            if (!cfg.drm.clearKeys) cfg.drm.clearKeys = {};
+            log("Configurando ClearKeys (hex):", cfg.drm.clearKeys);
+            await shakaPlayer.configure(cfg);
+          } else {
+            await shakaPlayer.configure({ drm: {} });
+          }
+
+          // Load manifest via Shaka (assume DASH)
+          await shakaPlayer.load(contentId);
+          log("Shaka cargó manifest OK");
+        } catch (e) {
+          console.error("Receiver Shaka load error", e);
+          log("Error Shaka load: " + e);
+        }
+      })();
+
+      // We handled the load — return null to stop CAF default handler
+      return null;
+
+    } catch (err) {
+      console.error("Error en LOAD interceptor:", err);
+      return request;
+    }
+  });
+
+  // Start the context (so CAF starts listening)
+  context.start();
+  log("CAF Receiver started");
+})();
+</script>
+</body>
+</html>
