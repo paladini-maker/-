@@ -2,20 +2,46 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Receiver — Shaka + ClearKey</title>
-
-  <!-- CAF Receiver SDK -->
-  <script src="https://www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
+  <title>Receiver Shaka + ClearKey</title>
 
   <!-- Shaka Player -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.12.3/shaka-player.compiled.js"></script>
 
+  <!-- Cast Receiver -->
+  <script src="https://www.gstatic.com/cast/sdk/libs/cast_receiver_framework.js"></script>
+
+  <style>
+    body { margin: 0; background: #000; }
+    video { width: 100vw; height: 100vh; }
+  </style>
 </head>
-<body style="background:black;color:white;font-family:sans-serif;">
+<body>
+  <video id="video" autoplay muted></video>
 
-  <h3 style="text-align:center;margin-top:20px;">Custom Receiver — Shaka + ClearKey</h3>
-  <div id="status" style="text-align:center;">Cargando…</div>
+  <script>
+    const context = cast.framework.CastReceiverContext.getInstance();
+    const playerManager = context.getPlayerManager();
 
-  <script src="receiver.js"></script>
+    const video = document.getElementById('video');
+    const shakaPlayer = new shaka.Player(video);
+
+    // Interceptar LOAD
+    playerManager.setMessageInterceptor(
+      cast.framework.messages.MessageType.LOAD,
+      async (loadRequest) => {
+        const streamUrl = loadRequest.media.contentId;
+        const clearkey = loadRequest.media.customData?.clearkey;
+
+        if (clearkey) {
+          shakaPlayer.configure({ drm: { clearKeys: clearkey } });
+        }
+
+        await shakaPlayer.load(streamUrl);
+        return loadRequest;
+      }
+    );
+
+    context.start();
+  </script>
 </body>
 </html>
