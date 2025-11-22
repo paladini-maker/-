@@ -5,71 +5,30 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>TV Pública Argentina - Shaka Player con Cast</title>
 
-  <!-- Shaka Player UI -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.12/shaka-player.ui.min.js"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.12/controls.min.css" />
-
-  <!-- Google Cast Sender -->
   <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
 
   <style>
-    body {
-      font-family: 'Arial', sans-serif;
-      margin: 0;
-      padding: 20px;
-      background: linear-gradient(135deg, #74b9ff, #0984e3);
-      color: #2d3436;
-    }
-    .container {
-      max-width: 1200px;
-      margin: 0 auto;
-      background: white;
-      border-radius: 15px;
-      padding: 20px;
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
-    }
-    header { text-align: center; margin-bottom: 30px; }
-    .logo { max-width: 200px; height: auto; margin-bottom: 15px; }
-    h1 { color: #2d3436; margin: 0; font-size: 2.2em; }
-    .subtitle { color: #636e72; font-size: 1.1em; }
+    body { font-family: 'Arial', sans-serif; margin:0; padding:20px; background: linear-gradient(135deg, #74b9ff, #0984e3); color: #2d3436; }
+    .container { max-width:1200px; margin:0 auto; background:white; border-radius:15px; padding:20px; box-shadow:0 10px 30px rgba(0,0,0,0.2); }
+    header { text-align:center; margin-bottom:30px; }
+    .logo { max-width:200px; height:auto; margin-bottom:15px; }
+    h1 { margin:0; font-size:2.2em; color:#2d3436; }
+    .subtitle { color:#636e72; font-size:1.1em; }
 
-    #video-container {
-      position: relative;
-      width: 100%;
-      max-width: 800px;
-      margin: 20px auto;
-      border-radius: 10px;
-      overflow: hidden;
-      box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
-      background: #000;
-      aspect-ratio: 16 / 9;
-    }
-    #video { width: 100%; height: 100%; }
+    #video-container { position:relative; width:100%; max-width:800px; margin:20px auto; border-radius:10px; overflow:hidden; box-shadow:0 5px 15px rgba(0,0,0,0.3); background:#000; aspect-ratio:16/9; }
+    #video { width:100%; height:100%; }
 
-    .channel-info {
-      background: #dfe6e9;
-      padding: 15px;
-      border-radius: 10px;
-      margin: 20px 0;
-      text-align: center;
-    }
-    footer {
-      text-align: center;
-      margin-top: 30px;
-      color: #636e72;
-      font-size: 0.9em;
-    }
+    .channel-info { background:#dfe6e9; padding:15px; border-radius:10px; margin:20px 0; text-align:center; }
+    footer { text-align:center; margin-top:30px; color:#636e72; font-size:0.9em; }
   </style>
 </head>
 <body>
   <div class="container">
     <header>
-      <img
-        src="https://github.com/masterentertainment/listas/blob/main/logos/C7TVP.png?raw=true"
-        alt="TV Pública Logo"
-        class="logo"
-        onerror="this.style.display='none'"
-      />
+      <img src="https://github.com/masterentertainment/listas/blob/main/logos/C7TVP.png?raw=true"
+           alt="TV Pública Logo" class="logo" onerror="this.style.display='none'">
       <h1>TV Pública Argentina</h1>
       <div class="subtitle">Canal 7 - Transmisión con Shaka Player y Google Cast</div>
     </header>
@@ -79,7 +38,7 @@
     </div>
 
     <div class="channel-info">
-      <strong>TV Pública Argentina</strong> - Canal 7<br />
+      <strong>TV Pública Argentina</strong> - Canal 7<br>
       Grupo: Argentina | Calidad: HD
     </div>
 
@@ -94,7 +53,6 @@
 
     function initApp() {
       shaka.polyfill.installAll();
-
       if (!shaka.Player.isBrowserSupported()) {
         console.error('El navegador no es compatible con Shaka Player.');
         return;
@@ -102,55 +60,46 @@
 
       const video = document.getElementById('video');
       const videoContainer = document.getElementById('video-container');
-
-      // Crear instancia del Player
       const player = new shaka.Player(video);
-
-      // Configurar UI
       const ui = new shaka.ui.Overlay(player, videoContainer, video);
+
       const uiConfig = {
         controlPanelElements: [
-          'play_pause',
-          'time_and_duration',
-          'spacer',
-          'mute',
-          'volume',
-          'cast',       // botón de Cast
-          'fullscreen',
-          'overflow_menu'
+          'play_pause', 'time_and_duration', 'spacer',
+          'mute', 'volume', 'cast', 'fullscreen', 'overflow_menu'
         ],
-        castReceiverAppId: 'CC1AD845', // App ID de prueba de Google
+        castReceiverAppId: 'CC1AD845',
         castAndroidReceiverCompatible: true
       };
       ui.configure(uiConfig);
 
-      // Listener de estado de cast
       const controls = ui.getControls();
+      controls.allowCast(true);
+
+      // Depurar si puede castear
+      const proxy = controls.getCastProxy();
+      console.log('canCast inicial:', proxy.canCast());
+
       controls.addEventListener('caststatuschanged', (event) => {
-        console.log('Estado de cast:', event.newStatus);
+        console.log('nuevo estado cast:', event.newStatus, 'canCast:', proxy.canCast());
       });
 
-      // Configurar Player
       player.configure({
         drm: { clearKeys: clearKeyConfig },
         streaming: { bufferingGoal: 30, rebufferingGoal: 10 }
       });
 
-      // Manejo de errores
       player.addEventListener('error', (event) => {
         console.error('Error Shaka:', event.detail);
       });
 
-      // Cargar manifiesto
-      player.load(manifestUri).then(() => {
-        console.log('Video cargado correctamente');
-      }).catch((e) => {
-        console.error('Error cargando el manifiesto:', e);
-      });
+      player.load(manifestUri)
+        .then(() => console.log('Video cargado correctamente'))
+        .catch((e) => console.error('Error cargando el manifiesto:', e));
     }
 
-    // Inicializar solo cuando el SDK de Cast esté disponible
     window['__onGCastApiAvailable'] = function(isAvailable) {
+      console.log('Cast API disponible?', isAvailable);
       if (isAvailable) {
         initApp();
       } else {
