@@ -200,245 +200,147 @@
         </div>
     </div>
 
-    <!-- Cargar Cast Framework primero -->
     <script defer src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
-    
-    <!-- Luego Shaka Player -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.ui.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.ui.min.js"></script>
 
-    <script>
-        const manifestUri = 'https://storage.googleapis.com/shaka-demo-assets/angel-one/dash.mpd';
-        // Usamos la aplicación de demostración pública de Google
-        const CAST_APP_ID = 'CC1AD845';
+<script>
+const manifestUri = 'https://storage.googleapis.com/shaka-demo-assets/angel-one/dash.mpd';
+const CAST_APP_ID = 'CC1AD845';
 
-        // Estado global
-        let castContext = null;
-        let ui = null;
-        let player = null;
+let castContext = null;
+let ui = null;
+let player = null;
 
-        // Callback para cuando Cast Framework está disponible
-        window['__onGCastApiAvailable'] = function(isAvailable) {
-            const statusElement = document.getElementById('status');
-            const castStatusElement = document.getElementById('cast-status');
-            
-            if (isAvailable) {
-                statusElement.textContent = 'Google Cast SDK disponible. Inicializando...';
-                castStatusElement.textContent = 'Google Cast disponible. Buscando dispositivos...';
-                castStatusElement.className = 'success';
-                console.log('Google Cast SDK cargado y disponible.');
-                
-                try {
-                    // Inicializar Cast Context
-                    castContext = cast.framework.CastContext.getInstance();
-                    castContext.setOptions({
-                        receiverApplicationId: CAST_APP_ID,
-                        autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
-                    });
-                    
-                    // Esperar a que el DOM esté listo
-                    if (document.readyState === 'loading') {
-                        document.addEventListener('DOMContentLoaded', initPlayer);
-                    } else {
-                        initPlayer();
-                    }
-                } catch (error) {
-                    console.error('Error inicializando Cast:', error);
-                    statusElement.textContent = 'Error inicializando Google Cast. Usando modo local.';
-                    castStatusElement.textContent = 'Error inicializando Google Cast.';
-                    castStatusElement.className = 'error-text';
-                    initPlayerWithoutCast();
-                }
-            } else {
-                statusElement.textContent = 'Cast SDK no disponible. Usando modo local.';
-                castStatusElement.textContent = 'Google Cast no disponible en este navegador.';
-                castStatusElement.className = 'warning';
-                console.warn("Cast SDK no está disponible en este entorno.");
-                if (document.readyState === 'loading') {
-                    document.addEventListener('DOMContentLoaded', initPlayerWithoutCast);
-                } else {
-                    initPlayerWithoutCast();
-                }
-            }
-        };
+window.__onGCastApiAvailable = function(isAvailable) {
+    const statusEl = document.getElementById("status");
+    const castEl = document.getElementById("cast-status");
 
-        async function initPlayer() {
-            try {
-                const video = document.getElementById('video');
-                const videoContainer = document.querySelector('.video-container');
-                const statusElement = document.getElementById('status');
-                const castStatusElement = document.getElementById('cast-status');
-                
-                // Inicializar Shaka Player
-                const shakaPlayer = new shaka.Player(video);
-                
-                // Configurar Shaka Player
-                shakaPlayer.configure({
-                    drm: {
-                        clearKeys: {}
-                    }
-                });
+    if (!isAvailable) {
+        statusEl.textContent = "Cast SDK no disponible. Iniciando modo local…";
+        initPlayer(false);
+        return;
+    }
 
-                // Inicializar UI
-                ui = new shaka.ui.Overlay(shakaPlayer, videoContainer, video);
-                player = shakaPlayer;
-
-                // Configurar controles UI
-                const config = {
-                    cast: {
-                        receiverApplicationId: CAST_APP_ID
-                    },
-                    controlPanelElements: [
-                        'play_pause',
-                        'mute',
-                        'volume',
-                        'time_and_duration',
-                        'spacer',
-                        'cast',
-                        'fullscreen',
-                        'overflow_menu'
-                    ],
-                    overflowMenuButtons: [
-                        'quality',
-                        'language',
-                        'playback_rate',
-                        'picture_in_picture'
-                    ]
-                };
-
-                ui.configure(config);
-
-                // Event listeners
-                player.addEventListener('error', onErrorEvent);
-                player.addEventListener('loading', () => {
-                    statusElement.textContent = 'Cargando contenido...';
-                });
-                
-                player.addEventListener('loaded', () => {
-                    statusElement.textContent = 'Contenido cargado. Listo para reproducir.';
-                });
-
-                // Cast event listeners
-                castContext.addEventListener(
-                    cast.framework.CastContextEventType.SESSION_STATE_CHANGED,
-                    onSessionStateChanged
-                );
-
-                castContext.addEventListener(
-                    cast.framework.CastContextEventType.CAST_STATE_CHANGED,
-                    onCastStateChanged
-                );
-
-                // Cargar el contenido
-                await player.load(manifestUri);
-                statusElement.textContent = 'Reproducción local lista. Cast disponible.';
-                
-            } catch (error) {
-                onError(error);
-            }
-        }
-
-        function initPlayerWithoutCast() {
-            const video = document.getElementById('video');
-            const videoContainer = document.querySelector('.video-container');
-            const statusElement = document.getElementById('status');
-            
-            const shakaPlayer = new shaka.Player(video);
-            ui = new shaka.ui.Overlay(shakaPlayer, videoContainer, video);
-            player = shakaPlayer;
-
-            // Configuración sin Cast
-            ui.configure({
-                controlPanelElements: [
-                    'play_pause',
-                    'mute',
-                    'volume',
-                    'time_and_duration',
-                    'spacer',
-                    'fullscreen',
-                    'overflow_menu'
-                ]
-            });
-
-            player.addEventListener('error', onErrorEvent);
-            
-            player.load(manifestUri)
-                .then(() => {
-                    statusElement.textContent = 'Reproducción local activa (Cast no disponible)';
-                })
-                .catch(onError);
-        }
-
-        function onSessionStateChanged(event) {
-            const statusElement = document.getElementById('status');
-            const castStatusElement = document.getElementById('cast-status');
-            
-            switch (event.sessionState) {
-                case cast.framework.SessionState.SESSION_STARTED:
-                    statusElement.textContent = 'Sesión Cast iniciada - Transmitiendo a dispositivo Chromecast';
-                    castStatusElement.textContent = 'Conectado y transmitiendo a Chromecast';
-                    castStatusElement.className = 'success';
-                    break;
-                case cast.framework.SessionState.SESSION_RESUMED:
-                    statusElement.textContent = 'Sesión Cast reanudada';
-                    castStatusElement.textContent = 'Sesión Cast reanudada';
-                    castStatusElement.className = 'success';
-                    break;
-                case cast.framework.SessionState.SESSION_ENDED:
-                    statusElement.textContent = 'Sesión Cast finalizada. Volviendo a reproducción local.';
-                    castStatusElement.textContent = 'No conectado a Chromecast';
-                    castStatusElement.className = '';
-                    break;
-            }
-        }
-
-        function onCastStateChanged(event) {
-            const castStatusElement = document.getElementById('cast-status');
-            
-            switch (event.castState) {
-                case cast.framework.CastState.NO_DEVICES_AVAILABLE:
-                    castStatusElement.textContent = 'No hay dispositivos Chromecast disponibles';
-                    castStatusElement.className = 'warning';
-                    break;
-                case cast.framework.CastState.NOT_CONNECTED:
-                    castStatusElement.textContent = 'No conectado a Chromecast';
-                    castStatusElement.className = '';
-                    break;
-                case cast.framework.CastState.CONNECTING:
-                    castStatusElement.textContent = 'Conectando a Chromecast...';
-                    castStatusElement.className = '';
-                    break;
-                case cast.framework.CastState.CONNECTED:
-                    castStatusElement.textContent = 'Conectado a Chromecast';
-                    castStatusElement.className = 'success';
-                    break;
-            }
-        }
-
-        function onErrorEvent(event) {
-            onError(event.detail);
-        }
-
-        function onError(error) {
-            console.error('Error:', error);
-            const errorElement = document.getElementById('error');
-            errorElement.textContent = `Error: ${error.code} - ${error.message || 'Error desconocido'}`;
-            errorElement.style.display = 'block';
-            
-            // Actualizar estado
-            const statusElement = document.getElementById('status');
-            statusElement.textContent = 'Error al cargar el contenido';
-        }
-
-        // Cleanup al cerrar la página
-        window.addEventListener('beforeunload', () => {
-            if (player) {
-                player.destroy();
-            }
-            if (ui) {
-                ui.destroy();
-            }
+    try {
+        castContext = cast.framework.CastContext.getInstance();
+        castContext.setOptions({
+            receiverApplicationId: CAST_APP_ID,
+            autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
         });
 
-    </script>
+        castEl.textContent = "Cast disponible — buscando dispositivos…";
+        castEl.className = "success";
+
+        initPlayer(true);
+    } catch (e) {
+        console.error("Error Cast:", e);
+        castEl.textContent = "Error inicializando Cast";
+        castEl.className = "error-text";
+        initPlayer(false);
+    }
+};
+
+async function initPlayer(enableCast) {
+    const video = document.getElementById("video");
+    const container = document.querySelector(".video-container");
+    const statusEl = document.getElementById("status");
+
+    try {
+        player = new shaka.Player(video);
+
+        ui = new shaka.ui.Overlay(player, container, video);
+
+        const uiConfig = {
+            controlPanelElements: [
+                "play_pause",
+                "mute",
+                "volume",
+                "time_and_duration",
+                "spacer",
+                enableCast ? "cast" : "",
+                "fullscreen",
+                "overflow_menu"
+            ],
+            overflowMenuButtons: [
+                "quality",
+                "language",
+                "playback_rate",
+                "picture_in_picture"
+            ].filter(Boolean),
+            cast: enableCast ? { receiverApplicationId: CAST_APP_ID } : undefined
+        };
+
+        ui.configure(uiConfig);
+
+        player.addEventListener("error", err => showError(err.detail));
+
+        if (enableCast) {
+            castContext.addEventListener(
+                cast.framework.CastContextEventType.SESSION_STATE_CHANGED,
+                onCastSessionChange
+            );
+            castContext.addEventListener(
+                cast.framework.CastContextEventType.CAST_STATE_CHANGED,
+                onCastStateChange
+            );
+        }
+
+        await player.load(manifestUri);
+        statusEl.textContent = enableCast
+            ? "Reproducción lista. Cast habilitado."
+            : "Reproducción lista (sin Cast).";
+
+    } catch (e) {
+        showError(e);
+    }
+}
+
+function onCastSessionChange(e) {
+    const text = document.getElementById("cast-status");
+    const status = document.getElementById("status");
+
+    switch (e.sessionState) {
+        case "SESSION_STARTED":
+            status.textContent = "Transmitiendo a Chromecast";
+            text.textContent = "Transmisión activa";
+            text.className = "success";
+            break;
+        case "SESSION_RESUMED":
+            status.textContent = "Sesión Cast reanudada";
+            text.textContent = "Conectado";
+            text.className = "success";
+            break;
+        case "SESSION_ENDED":
+            status.textContent = "Sesión Cast finalizada — volviendo a local";
+            text.textContent = "No conectado";
+            text.className = "";
+            break;
+    }
+}
+
+function onCastStateChange(e) {
+    const el = document.getElementById("cast-status");
+
+    if (e.castState === "NO_DEVICES_AVAILABLE") {
+        el.textContent = "No hay Chromecasts disponibles";
+        el.className = "warning";
+    }
+}
+
+function showError(error) {
+    console.error(error);
+    const errorEl = document.getElementById("error");
+    const status = document.getElementById("status");
+
+    errorEl.style.display = "block";
+    errorEl.textContent = `Error: ${error.code || ''} ${error.message || ''}`;
+    status.textContent = "Error durante la reproducción";
+}
+
+window.addEventListener("beforeunload", () => {
+    if (ui) ui.destroy();
+    if (player) player.destroy();
+});
+</script>
 </body>
     </html>
