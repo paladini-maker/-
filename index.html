@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Shaka Player con Cast Integration</title>
+    <title>Shaka Player con Cast Integration (Final)</title>
     
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/controls.min.css">
     
@@ -13,13 +13,16 @@
             display: flex; 
             flex-direction: column; 
             align-items: center; 
-            margin-top: 50px;
+            margin: 0;
+            padding-top: 50px;
         }
-        /* Contenedor del video: Shaka necesita un div wrapper */
+        
         .video-container {
             width: 640px;
+            max-width: 100%; /* Asegura ajuste móvil */
             margin: 0 auto;
         }
+        
         video {
             width: 100%;
             height: 100%;
@@ -39,53 +42,81 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.ui.min.js"></script>
 
     <script>
-        // El manifiesto DASH que vamos a reproducir (Video adaptativo)
         const manifestUri = 'https://storage.googleapis.com/shaka-demo-assets/angel-one/dash.mpd';
-        
-        // TU APP ID de Receiver (Usa 'CC1AD845' si no tienes uno propio, es el Default Media Receiver)
         const CAST_APP_ID = '86E6AFAF'; 
 
+        // --- 🔑 CORRECCIÓN ARQUITECTÓNICA CLAVE: Inicialización de Cast ---
+        // Esto garantiza que el objeto 'cast' exista antes de que Shaka intente configurarlo.
+        window['__onGCastApiAvailable'] = function(isAvailable) {
+            if (isAvailable) {
+                console.log('Google Cast SDK cargado y disponible.');
+                // Solo iniciamos Shaka una vez que el DOM esté listo Y Cast esté disponible.
+                document.addEventListener('DOMContentLoaded', init); 
+            } else {
+                console.error("Cast SDK no está disponible en este entorno.");
+                document.addEventListener('DOMContentLoaded', initWithoutCast); // Opción de fallback
+            }
+        };
+
+
         async function init() {
-            // Al finalizar la carga del DOM, iniciamos Shaka
             const video = document.getElementById('video');
-            const videoContainer = document.querySelector('.video-container'); // UI Container
+            const videoContainer = document.querySelector('.video-container');
             
-            // Inicializar la UI de Shaka (Player + Interfaz gráfica)
+            // Inicializar UI y Player
             const ui = new shaka.ui.Overlay(new shaka.Player(video), videoContainer, video);
             const controls = ui.getControls();
             const player = controls.getPlayer();
 
-            // --- AQUÍ ESTÁ LA INTEGRACIÓN CON CAST ---
-            
-            // Configuramos la UI para incluir el botón de Cast y definir el App ID
+            // 1. Configuración de Cast y Visibilidad del Botón
             ui.configure({
                 cast: {
                     receiverApplicationId: CAST_APP_ID,
                     androidReceiverCompatible: false
                 },
-                overflowMenuButtons: ['cast', 'quality', 'language', 'playback_rate'] // Añadimos 'cast' al menú si no cabe
+                // Forzamos la visibilidad del botón 'cast' en la barra principal (no en el menú oculto)
+                controlPanelElements: [
+                    'play_pause',
+                    'time_and_duration',
+                    'spacer',
+                    'mute',
+                    'volume',
+                    'cast', 
+                    'overflow_menu' 
+                ],
+                overflowMenuButtons: ['quality', 'language', 'playback_rate', 'picture_in_picture']
             });
 
-            // Configurar listeners de errores
+            // Listeners
             player.addEventListener('error', onErrorEvent);
             controls.addEventListener('caststatuschanged', onCastStatusChanged);
 
-            // Cargar el video
             try {
                 await player.load(manifestUri);
-                console.log('El video ha sido cargado exitosamente en el player local.');
+                console.log('Shaka Player inicializado. Esperando comandos de Cast...');
             } catch (e) {
                 onError(e);
             }
         }
+        
+        // Función de fallback si Cast no está disponible (ej. si usas Firefox o Safari)
+        function initWithoutCast() {
+            const video = document.getElementById('video');
+            const videoContainer = document.querySelector('.video-container');
+            const ui = new shaka.ui.Overlay(new shaka.Player(video), videoContainer, video);
+            // El resto de la lógica de Shaka...
+            ui.configure({ /* sin la configuración 'cast' */ });
+            console.log('Shaka inicializado sin soporte de Cast.');
+            // Aquí puedes cargar el video sin el botón de Cast.
+            ui.getControls().getPlayer().load(manifestUri);
+        }
 
         function onCastStatusChanged(e) {
-            // Shaka nos avisa cuando nos conectamos o desconectamos
-            const newStatus = e['newStatus']; // bool: true (conectado) / false (desconectado)
+            const newStatus = e['newStatus'];
             if (newStatus) {
-                console.log("¡Conectado a Chromecast! Shaka está delegando la reproducción.");
+                console.log("¡Conectado a Chromecast! Reproducción delegada.");
             } else {
-                console.log("Desconectado de Chromecast. Reproducción local.");
+                console.log("Desconectado de Chromecast. Reproducción local reanudada.");
             }
         }
 
@@ -94,45 +125,9 @@
         }
 
         function onError(error) {
-            console.error('Error código', error.code, 'objeto', error);
+            console.error('Shaka Error:', error.code, error);
         }
 
-        // Esperar a que el DOM esté listo
-        document.addEventListener('DOMContentLoaded', init);
-        // Agrega esto al final de tu script para ver qué pasa en pantalla
-setTimeout(() => {
-    // Verificar si la API de Cast se cargó
-    if (!window.cast) {
-        alert("ERROR CRÍTICO: El script de Google Cast no se cargó. Revisa tu conexión a internet o bloqueadores de anuncios.");
-        return;
-    }
-
-    const context = cast.framework.CastContext.getInstance();
-    const state = context.getCastState();
-    
-    // Traducir el estado para ti
-    let estadoTexto = "";
-    switch(state) {
-        case 'NO_DEVICES_AVAILABLE':
-            estadoTexto = "NO SE ENCONTRARON DISPOSITIVOS. (¿Estás en la misma Wi-Fi?)";
-            break;
-        case 'NOT_CONNECTED':
-            estadoTexto = "DISPOSITIVOS ENCONTRADOS. El botón debería ser visible.";
-            break;
-        case 'CONNECTING':
-            estadoTexto = "CONECTANDO...";
-            break;
-        case 'CONNECTED':
-            estadoTexto = "CONECTADO.";
-            break;
-        default:
-            estadoTexto = state;
-    }
-    
-    alert("Estado del Cast: " + estadoTexto);
-
-}, 3000); // Espera 3 segundos a que todo cargue
     </script>
-
 </body>
 </html>
