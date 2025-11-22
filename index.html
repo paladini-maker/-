@@ -3,18 +3,38 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>IPTV — Shaka + ClearKey + Chromecast</title>
+<title>IPTV — Shaka + ClearKey + Chromecast (Corregido)</title>
 
-<!-- Shaka Player -->
+<!-- 1) Google Cast sender: cargar primero -->
+<script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1" async></script>
+
+<script>
+  // Inicializar CAST apenas la API esté disponible
+  window.__onGCastApiAvailable = function(isAvailable) {
+    if (!isAvailable) {
+      console.warn("Cast API no disponible");
+      return;
+    }
+    try {
+      const ctx = cast.framework.CastContext.getInstance();
+      ctx.setOptions({
+        // Default Media Receiver o reemplazá por tu APP_ID custom si lo tenés
+        receiverApplicationId: chrome.cast.media.DEFAULT_MEDIA_RECEIVER_APP_ID,
+        // política robusta que evita sesiones fantasma entre pestañas
+        autoJoinPolicy: chrome.cast.AutoJoinPolicy.TAB_AND_ORIGIN_SCOPED
+      });
+      console.log("Cast API inicializada correctamente");
+    } catch (e) {
+      console.error("Error inicializando Cast API:", e);
+    }
+  };
+</script>
+
+<!-- 2) Shaka Player (puede cargarse después de Cast) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.12.3/shaka-player.compiled.js"></script>
 
-<!-- Google Cast Sender -->
-<script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
-
 <style>
-  :root{
-    --bg:#0b0b0b; --panel:#0f1113; --muted:#9aa0a6; --accent:#1db954;
-  }
+  :root{ --bg:#0b0b0b; --panel:#0f1113; --muted:#9aa0a6; --accent:#1db954; }
   body{ margin:0; font-family:Inter,system-ui,Arial; background:var(--bg); color:#fff; }
   header{ display:flex; align-items:center; gap:12px; padding:12px; background:#061016; }
   header h1{ margin:0; font-size:16px; }
@@ -39,7 +59,7 @@
 <body>
 
 <header>
-  <h1>IPTV — Shaka + ClearKey + Chromecast</h1>
+  <h1>IPTV — Shaka + ClearKey + Chromecast (Corregido)</h1>
   <div style="margin-left:auto;color:var(--muted);font-size:13px;">HTTPS requerido (GitHub Pages)</div>
 </header>
 
@@ -49,23 +69,16 @@
       <input id="filter" placeholder="Buscar canal..." style="flex:1;padding:8px;border-radius:6px;border:0;background:#0b0d0f;color:#fff;outline:none" />
       <button id="refreshBtn" class="btn">Refrescar</button>
     </div>
-
-    <div class="list" id="channelList">
-      <!-- canales se renderizan acá -->
-    </div>
+    <div class="list" id="channelList"></div>
   </aside>
 
   <main>
-    <div id="playerWrap">
-      <video id="video" controls playsinline></video>
-    </div>
-
+    <div id="playerWrap"><video id="video" controls playsinline></video></div>
     <div class="controls">
       <div id="nowInfo">Seleccioná un canal</div>
       <button id="playLocal" class="btn">▶ Reproducir local</button>
-      <button id="castGlobal" title="Enviar al Chromecast" >📺 Enviar al Chromecast</button>
+      <button id="castGlobal" title="Enviar al Chromecast">📺 Enviar al Chromecast</button>
     </div>
-
     <footer>Última carga: <span id="lastUpdate">—</span></footer>
   </main>
 </div>
@@ -76,11 +89,9 @@
 const M3U_URL = "https://raw.githubusercontent.com/paladini-maker/-/refs/heads/main/002.m3u";
 /* ================================================= */
 
-let channels = [];          // array de { name, logo, mpd, kid, key, tvgId, group, chNumber }
-let current = null;         // canal seleccionado
-let player = null;          // instancia Shaka
+let channels = [], current = null, player = null;
 
-/* ---------------- util: hex -> base64 ---------------- */
+/* ===== utils ===== */
 function hexToBase64(hex) {
   if (!hex) return "";
   hex = hex.replace(/\s+/g,"").replace(/^0x/, "");
@@ -90,12 +101,15 @@ function hexToBase64(hex) {
   for (let i=0;i<bytes.length;i++) binary += String.fromCharCode(bytes[i]);
   return btoa(binary);
 }
+function base64ToHex(b64) {
+  if (!b64) return "";
+  const bin = atob(b64);
+  let hex = "";
+  for (let i=0;i<bin.length;i++){ let h = bin.charCodeAt(i).toString(16); if (h.length===1) h="0"+h; hex+=h; }
+  return hex;
+}
 
-/* ---------------- parser robusto M3U ----------------
-   - Soporta KODIPROP:inputstream.adaptive.license_key = KID:KEY (global o por-canal)
-   - Soporta EXTINF con tvg-logo, tvg-id, group-title, ch-number
-   - Relaciona el MPD siguiente con la info previa
-*/
+/* ===== M3U parser (tu versión robusta) ===== */
 async function loadM3UAndParse(url) {
   channels = [];
   try {
@@ -112,106 +126,48 @@ async function loadM3UAndParse(url) {
       const line = raw.trim();
       if (!line) continue;
 
-      // header with url-tvg (we ignore here)
-      if (line.startsWith("#EXTM3U")) {
-        // nothing
-        continue;
-      }
+      if (line.startsWith("#EXTM3U")) continue;
 
-      // Global KODIPROP license_key style KID:KEY
       if (line.startsWith("#KODIPROP:inputstream.adaptive.license_key=")) {
         const val = line.split("=",2)[1] || "";
-        // sometimes value includes quotes or JSON; try simple kid:key first
         const s = val.trim().replace(/^"|"$/g,"");
         if (s.includes(":")) {
           const [gkid, gkey] = s.split(":");
           globalKid = gkid.toLowerCase();
           globalKey = gkey.toLowerCase();
         } else {
-          // fallback: try to extract if JSON-ish (rare in your lists)
-          try {
-            const j = JSON.parse(s);
-            if (j && j.keys && j.keys[0]) {
-              globalKid = (j.keys[0].kid || "").toLowerCase();
-              globalKey = (j.keys[0].k || "").toLowerCase();
-            }
-          } catch(e){}
+          try { const j = JSON.parse(s); if (j && j.keys && j.keys[0]) { globalKid = (j.keys[0].kid||"").toLowerCase(); globalKey = (j.keys[0].k||"").toLowerCase(); } } catch(e){}
         }
         continue;
       }
 
-      // per-channel KODIPROP (can appear before EXTINF or between)
-      if (line.startsWith("#KODIPROP:inputstream.adaptive.license_type")) {
-        // ignore license type line
-        continue;
-      }
+      if (line.startsWith("#KODIPROP:inputstream.adaptive.license_type")) continue;
 
-      // EXTINF (channel metadata)
       if (line.startsWith("#EXTINF")) {
-        // init pending with defaulting to global keys (we copy current global)
         pending = { kid: globalKid, key: globalKey };
-
-        // name
         const nameMatch = line.match(/,(.*)$/);
         pending.name = nameMatch ? nameMatch[1].trim() : "Canal";
-
-        // tvg-id
-        const idM = line.match(/tvg-id="(.*?)"/);
-        pending.tvgId = idM ? idM[1] : null;
-
-        // logo
-        const lgM = line.match(/tvg-logo="(.*?)"/);
-        pending.logo = lgM ? lgM[1] : null;
-
-        // group
-        const gM = line.match(/group-title="(.*?)"/);
-        pending.group = gM ? gM[1] : null;
-
-        // ch-number
-        const nM = line.match(/ch-number="(.*?)"/);
-        pending.chNumber = nM ? nM[1] : null;
-
+        const idM = line.match(/tvg-id="(.*?)"/); pending.tvgId = idM ? idM[1] : null;
+        const lgM = line.match(/tvg-logo="(.*?)"/); pending.logo = lgM ? lgM[1] : null;
+        const gM = line.match(/group-title="(.*?)"/); pending.group = gM ? gM[1] : null;
+        const nM = line.match(/ch-number="(.*?)"/); pending.chNumber = nM ? nM[1] : null;
         continue;
       }
 
-      // There are lists where #KODIPROP:license_key appears immediately after EXTINF (per-channel)
       if (line.startsWith("#KODIPROP:inputstream.adaptive.license_key")) {
-        const val = line.split("=",2)[1] || "";
-        const s = val.trim().replace(/^"|"$/g,"");
-        if (s.includes(":")) {
-          const [pkid, pkey] = s.split(":");
-          pending.kid = pkid.toLowerCase();
-          pending.key = pkey.toLowerCase();
-        } else {
-          try {
-            const j = JSON.parse(s);
-            if (j && j.keys && j.keys[0]) {
-              pending.kid = (j.keys[0].kid || "").toLowerCase();
-              pending.key = (j.keys[0].k || "").toLowerCase();
-            }
-          } catch(e){}
-        }
+        const val = line.split("=",2)[1] || ""; const s = val.trim().replace(/^"|"$/g,"");
+        if (s.includes(":")) { const [pkid,pkey] = s.split(":"); pending.kid = pkid.toLowerCase(); pending.key = pkey.toLowerCase(); }
+        else { try { const j = JSON.parse(s); if (j && j.keys && j.keys[0]) { pending.kid = (j.keys[0].kid||"").toLowerCase(); pending.key = (j.keys[0].k||"").toLowerCase(); } } catch(e){} }
         continue;
       }
 
-      // EXTVLCOPT:dash-kid= / dash-key= (some lists use this)
-      if (line.startsWith("#EXTVLCOPT:dash-kid=")) {
-        pending.kid = (line.split("=",2)[1] || "").trim().toLowerCase();
-        continue;
-      }
-      if (line.startsWith("#EXTVLCOPT:dash-key=")) {
-        pending.key = (line.split("=",2)[1] || "").trim().toLowerCase();
-        continue;
-      }
+      if (line.startsWith("#EXTVLCOPT:dash-kid=")) { pending.kid = (line.split("=",2)[1] || "").trim().toLowerCase(); continue; }
+      if (line.startsWith("#EXTVLCOPT:dash-key=")) { pending.key = (line.split("=",2)[1] || "").trim().toLowerCase(); continue; }
 
-      // MPD URL (end of channel block)
       if (!line.startsWith("#") && line.includes(".mpd")) {
         pending.mpd = line;
-        // ensure keys: if pending does not have kid/key, use global ones
         if (!pending.kid && globalKid) pending.kid = globalKid;
         if (!pending.key && globalKey) pending.key = globalKey;
-
-        // push only if have mpd; keys optional (we can still try streaming without DRM)
         channels.push({
           name: pending.name || pending.mpd,
           logo: pending.logo || "",
@@ -222,11 +178,9 @@ async function loadM3UAndParse(url) {
           kid: pending.kid ? pending.kid.toLowerCase() : null,
           key: pending.key ? pending.key.toLowerCase() : null
         });
-
-        pending = {}; // reset
+        pending = {};
       }
     }
-
     renderChannelList();
   } catch (err) {
     console.error("Error cargando M3U:", err);
@@ -234,13 +188,11 @@ async function loadM3UAndParse(url) {
   }
 }
 
-/* ---------------- render UI ---------------- */
+/* ===== UI render ===== */
 function renderChannelList() {
-  const el = document.getElementById("channelList");
-  el.innerHTML = "";
+  const el = document.getElementById("channelList"); el.innerHTML = "";
   channels.forEach((ch, idx) => {
-    const div = document.createElement("div");
-    div.className = "channel";
+    const div = document.createElement("div"); div.className = "channel";
     div.innerHTML = `
       <img src="${ch.logo || 'https://via.placeholder.com/120x76?text=No+Logo'}" alt="">
       <div class="chmeta">
@@ -248,45 +200,35 @@ function renderChannelList() {
         <div class="chsub">${ch.group || ''} ${ch.chNumber ? '• ' + ch.chNumber : ''} ${ch.tvgId ? '• ' + ch.tvgId : ''}</div>
       </div>
       <div style="display:flex;flex-direction:column;gap:6px;">
-        <button class="btn" data-idx="${idx}" onclick="selectChannel(${idx})">Seleccionar</button>
-        <button class="btn" data-idx="${idx}" onclick="castChannelByIndex(${idx})">📺 Cast</button>
+        <button class="btn" onclick="selectChannel(${idx})">Seleccionar</button>
+        <button class="btn" onclick="castChannelByIndex(${idx})">📺 Cast</button>
       </div>
     `;
     el.appendChild(div);
   });
 }
 
-/* ---------------- Shaka init ---------------- */
+/* ===== Shaka init ===== */
 async function initShaka() {
   shaka.polyfill.installAll();
-  if (!shaka.Player.isBrowserSupported()) {
-    alert("Navegador no soportado por Shaka Player.");
-    return;
-  }
+  if (!shaka.Player.isBrowserSupported()) { alert("Navegador no soporta Shaka Player."); return; }
   player = new shaka.Player(document.getElementById("video"));
   player.addEventListener('error', e => console.error("Shaka error", e));
   console.log("Shaka listo");
 }
 
-/* ---------------- select & play local ---------------- */
-async function selectChannel(idx) {
+/* ===== select + play local ===== */
+function selectChannel(idx) {
   current = channels[idx];
   document.getElementById("nowInfo").textContent = `Seleccionado: ${current.name}`;
 }
-
 async function playLocal() {
-  if (!current) {
-    alert("Seleccioná un canal primero.");
-    return;
-  }
+  if (!current) { alert("Seleccioná un canal primero."); return; }
   try {
-    // configure ClearKey if exists (Shaka acepta hex)
     if (current.kid && current.key) {
-      await player.configure({
-        drm: { clearKeys: { [current.kid]: current.key } }
-      });
+      // Shaka acepta hex KID:KEY (según tu lista)
+      await player.configure({ drm: { clearKeys: { [current.kid]: current.key } } });
     } else {
-      // clear keys off
       await player.configure({ drm: {} });
     }
     await player.load(current.mpd);
@@ -297,112 +239,102 @@ async function playLocal() {
   }
 }
 
-/* ---------------- Cast setup ---------------- */
-window.__onGCastApiAvailable = function(isAvailable) {
-  if (isAvailable) {
-    const ctx = cast.framework.CastContext.getInstance();
-    ctx.setOptions({
-      receiverApplicationId: chrome.cast.media.DEFAULT_MEDIA_RECEIVER_APP_ID,
-      autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
-    });
-    console.log("Cast API lista");
-  } else {
-    console.log("Cast API no disponible");
-  }
-};
-
-/* ---------------- cast helpers ---------------- */
-function castChannelByIndex(idx) {
-  selectChannel(idx);
-  // request session then send
-  castChannel(current);
-}
+/* ===== CAST helpers - robust ClearKey payloads + retries ===== */
+function castChannelByIndex(idx) { selectChannel(idx); castChannel(current); }
 
 async function castChannel(ch) {
   if (!ch) { alert("No hay canal seleccionado"); return; }
+  if (!window.cast || !cast.framework) {
+    alert("Cast API no disponible en este navegador.");
+    return;
+  }
 
+  const ctx = cast.framework.CastContext.getInstance();
   try {
-    const ctx = cast.framework.CastContext.getInstance();
-    // requestSession will open the Cast picker if none
-    if (!ctx.getCurrentSession()) {
-      await ctx.requestSession();
-    }
-    const session = ctx.getCurrentSession();
-    if (!session) throw new Error("No session");
+    if (!ctx.getCurrentSession()) await ctx.requestSession();
+  } catch (e) {
+    console.error("Usuario canceló picker o no hay sesión:", e);
+    return;
+  }
 
-    // Build MediaInfo for DASH
-    const mediaInfo = new chrome.cast.media.MediaInfo(ch.mpd, "application/dash+xml");
+  const session = ctx.getCurrentSession();
+  if (!session) { alert("No hay sesión Cast activa"); return; }
 
-    // Metadata
-    const metadata = new chrome.cast.media.GenericMediaMetadata();
-    metadata.title = ch.name;
-    if (ch.logo) metadata.images = [{ url: ch.logo }];
-    mediaInfo.metadata = metadata;
+  // Preparar keys en formas hex y base64
+  const keys = {};
+  if (ch.kid && ch.key) {
+    const kidHex = ch.kid.replace(/^0x/, "").toLowerCase();
+    const keyHex = ch.key.replace(/^0x/, "").toLowerCase();
+    const kidB64 = hexToBase64(kidHex);
+    const keyB64 = hexToBase64(keyHex);
+    // incluir ambas variantes (hex-keyed mapping y base64-keyed mapping)
+    keys[kidHex] = keyHex;
+    keys[kidB64] = keyB64;
+  }
 
-    // Prepare clearkeys in multiple formats: hex and base64 (algunos receivers esperan base64)
-    const keys = {};
-    if (ch.kid && ch.key) {
-      const kidHex = ch.kid.replace(/^0x/, "").toLowerCase();
-      const keyHex = ch.key.replace(/^0x/, "").toLowerCase();
-      const kidB64 = hexToBase64(kidHex);
-      const keyB64 = hexToBase64(keyHex);
+  // Construir mediaInfo
+  const mediaInfo = new chrome.cast.media.MediaInfo(ch.mpd, "application/dash+xml");
+  const metadata = new chrome.cast.media.GenericMediaMetadata();
+  metadata.title = ch.name;
+  if (ch.logo) metadata.images = [{ url: ch.logo }];
+  mediaInfo.metadata = metadata;
 
-      // Put both variants (some receivers expect hex, otros base64)
-      keys[kidHex] = keyHex;
-      keys[kidB64] = keyB64;
-    }
+  // Intentos: 1) drm.clearkeys + clearkeys (ambos), 2) solo clearkeys (hex), 3) solo drm.clearkeys (base64), 4) sin customData
+  const payloads = [];
 
-    // Attach customData in a couple of common shapes to maximize compatibility
-    //  - customData.clearkeys
-    //  - customData.drm.clearkeys
-    //  - customData.drm.type = "clearkey"
-    mediaInfo.customData = {
-      clearkeys: Object.keys(keys).length ? keys : undefined,
-      drm: Object.keys(keys).length ? { type: "clearkey", clearkeys: keys } : undefined
-    };
+  if (Object.keys(keys).length) {
+    payloads.push({
+      desc: "drm + clearkeys (hex+base64)",
+      customData: { clearkeys: keys, drm: { type: "clearkey", clearkeys: keys } }
+    });
+    // only hex mapping
+    const onlyHex = {}; onlyHex[Object.keys(keys)[0]] = keys[Object.keys(keys)[0]];
+    payloads.push({ desc: "only clearkeys (hex)", customData: { clearkeys: onlyHex } });
+    // only base64 mapping
+    const base64Map = {}; base64Map[Object.keys(keys).find(k=>k.indexOf('=')>=0)] = Object.values(keys).find(v=>v.indexOf('=')>=0);
+    if (Object.keys(base64Map).length) payloads.push({ desc: "only clearkeys (base64)", customData: { clearkeys: base64Map } });
+  }
+  // final fallback (no customData)
+  payloads.push({ desc: "no customData", customData: undefined });
 
+  // Try sequentially until one works
+  for (let i=0;i<payloads.length;i++) {
+    const p = payloads[i];
+    mediaInfo.customData = p.customData;
     const request = new chrome.cast.media.LoadRequest(mediaInfo);
     request.autoplay = true;
     request.currentTime = 0;
 
-    session.loadMedia(request)
-      .then(() => {
-        console.log("Carga al Chromecast OK:", ch.name);
-      })
-      .catch(err => {
-        console.error("Error enviando al Chromecast:", err);
-        alert("Error enviando al Chromecast. Revisa consola.");
-      });
-
-  } catch (err) {
-    console.error("Error Cast flow:", err);
-    alert("Error en flujo de Cast: " + err.message);
+    try {
+      console.log("Intentando cast — payload:", p.desc);
+      await session.loadMedia(request);
+      console.log("Carga al Chromecast OK con payload:", p.desc);
+      return; // success
+    } catch (err) {
+      console.warn("Intento de cast falló con payload:", p.desc, err);
+      // si fue el último intento, mostrar error
+      if (i === payloads.length - 1) {
+        console.error("Todos los intentos de cast fallaron.");
+        alert("Error: no se pudo castear el canal. Revisá consola (CORS/compatibilidad/DMR).");
+      } else {
+        // wait brevemente y reintentar con siguiente payload
+        await new Promise(r => setTimeout(r, 300));
+      }
+    }
   }
 }
 
-/* ---------------- UI wiring ---------------- */
-document.getElementById("refreshBtn").addEventListener("click", () => {
-  loadM3UAndParse(M3U_URL);
-});
+/* ===== UI wiring ===== */
+document.getElementById("refreshBtn").addEventListener("click", () => loadM3UAndParse(M3U_URL));
 document.getElementById("playLocal").addEventListener("click", playLocal);
-document.getElementById("castGlobal").addEventListener("click", () => {
-  if (!current) { alert("Seleccioná un canal primero."); return; }
-  castChannel(current);
-});
+document.getElementById("castGlobal").addEventListener("click", () => { if (!current) { alert("Seleccioná un canal primero."); return; } castChannel(current); });
 document.getElementById("filter").addEventListener("input", (e) => {
   const q = (e.target.value || "").toLowerCase();
-  const filtered = channels.filter(c => {
-    return (c.name && c.name.toLowerCase().includes(q))
-      || (c.group && c.group.toLowerCase().includes(q))
-      || (c.tvgId && c.tvgId.toLowerCase().includes(q))
-      || (c.chNumber && String(c.chNumber).includes(q));
-  });
-  // render filtered
-  const el = document.getElementById("channelList");
-  el.innerHTML = "";
-  filtered.forEach((c, idx) => {
-    const div = document.createElement("div");
-    div.className = "channel";
+  const filtered = channels.filter(c => (c.name && c.name.toLowerCase().includes(q)) || (c.group && c.group.toLowerCase().includes(q)) || (c.tvgId && c.tvgId.toLowerCase().includes(q)) || (c.chNumber && String(c.chNumber).includes(q)));
+  const el = document.getElementById("channelList"); el.innerHTML = "";
+  filtered.forEach((c) => {
+    const idx = channels.indexOf(c);
+    const div = document.createElement("div"); div.className = "channel";
     div.innerHTML = `
       <img src="${c.logo || 'https://via.placeholder.com/120x76?text=No+Logo'}" alt="">
       <div class="chmeta">
@@ -410,19 +342,15 @@ document.getElementById("filter").addEventListener("input", (e) => {
         <div class="chsub">${c.group || ''} ${c.chNumber ? '• ' + c.chNumber : ''}</div>
       </div>
       <div style="display:flex;flex-direction:column;gap:6px;">
-        <button class="btn" onclick="selectChannel(${channels.indexOf(c)})">Seleccionar</button>
-        <button class="btn" onclick="castChannelByIndex(${channels.indexOf(c)})">📺 Cast</button>
-      </div>
-    `;
+        <button class="btn" onclick="selectChannel(${idx})">Seleccionar</button>
+        <button class="btn" onclick="castChannelByIndex(${idx})">📺 Cast</button>
+      </div>`;
     el.appendChild(div);
   });
 });
 
-/* ---------------- inicio ---------------- */
-document.addEventListener("DOMContentLoaded", async () => {
-  await initShaka();
-  await loadM3UAndParse(M3U_URL);
-});
+/* ===== inicio ===== */
+document.addEventListener("DOMContentLoaded", async () => { await initShaka(); await loadM3UAndParse(M3U_URL); });
 </script>
 
 </body>
