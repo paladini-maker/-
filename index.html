@@ -1,159 +1,178 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TV Pública Argentina - Shaka Player con Cast</title>
-    
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.12/shaka-player.ui.min.js"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.12/controls.min.css">
-    <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js"></script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TV Pública Argentina - Shaka Player con Cast</title>
 
-    <style>
-        body {
-            font-family: 'Arial', sans-serif;
-            margin: 0;
-            padding: 20px;
-            background: linear-gradient(135deg, #74b9ff, #0984e3);
-            color: #2d3436;
-        }
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            background: white;
-            border-radius: 15px;
-            padding: 20px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-        }
-        header { text-align: center; margin-bottom: 30px; }
-        .logo { max-width: 200px; height: auto; margin-bottom: 15px; }
-        h1 { color: #2d3436; margin: 0; font-size: 2.2em; }
-        .subtitle { color: #636e72; font-size: 1.1em; }
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.12/shaka-player.ui.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.12/controls.min.css" />
+  <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js"></script>
 
-        /* Contenedor del video ajustado para Shaka UI */
-        #video-container {
-            position: relative; /* Necesario para el Overlay */
-            width: 100%;
-            max-width: 800px;
-            margin: 20px auto;
-            border-radius: 10px;
-            overflow: hidden; /* Mantiene los bordes redondeados */
-            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
-            background: #000;
-            aspect-ratio: 16/9;
-        }
-        
-        #video {
-            width: 100%;
-            height: 100%;
-        }
+  <style>
+    body {
+      font-family: 'Arial', sans-serif;
+      margin: 0;
+      padding: 20px;
+      background: linear-gradient(135deg, #74b9ff, #0984e3);
+      color: #2d3436;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 15px;
+      padding: 20px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+    }
+    header {
+      text-align: center;
+      margin-bottom: 30px;
+    }
+    .logo {
+      max-width: 200px;
+      height: auto;
+      margin-bottom: 15px;
+    }
+    h1 {
+      color: #2d3436;
+      margin: 0;
+      font-size: 2.2em;
+    }
+    .subtitle {
+      color: #636e72;
+      font-size: 1.1em;
+    }
 
-        .channel-info {
-            background: #dfe6e9;
-            padding: 15px;
-            border-radius: 10px;
-            margin: 20px 0;
-            text-align: center;
-        }
-        footer {
-            text-align: center;
-            margin-top: 30px;
-            color: #636e72;
-            font-size: 0.9em;
-        }
-    </style>
+    #video-container {
+      position: relative;
+      width: 100%;
+      max-width: 800px;
+      margin: 20px auto;
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+      background: #000;
+      aspect-ratio: 16 / 9;
+    }
+
+    #video {
+      width: 100%;
+      height: 100%;
+    }
+
+    .channel-info {
+      background: #dfe6e9;
+      padding: 15px;
+      border-radius: 10px;
+      margin: 20px 0;
+      text-align: center;
+    }
+    footer {
+      text-align: center;
+      margin-top: 30px;
+      color: #636e72;
+      font-size: 0.9em;
+    }
+  </style>
 </head>
 <body>
-    <div class="container">
-        <header>
-            <img src="https://github.com/masterentertainment/listas/blob/main/logos/C7TVP.png?raw=true" 
-                 alt="TV Pública Logo" class="logo" onerror="this.style.display='none'">
-            <h1>TV Pública Argentina</h1>
-            <div class="subtitle">Canal 7 - Transmisión con Shaka Player y Google Cast</div>
-        </header>
+  <div class="container">
+    <header>
+      <img
+        src="https://github.com/masterentertainment/listas/blob/main/logos/C7TVP.png?raw=true"
+        alt="TV Pública Logo"
+        class="logo"
+        onerror="this.style.display='none'"
+      />
+      <h1>TV Pública Argentina</h1>
+      <div class="subtitle">Canal 7 - Transmisión con Shaka Player y Google Cast</div>
+    </header>
 
-        <div id="video-container">
-            <video id="video" autoplay></video>
-        </div>
-
-        <div class="channel-info">
-            <strong>TV Pública Argentina</strong> - Canal 7<br>
-            Grupo: Argentina | Calidad: HD
-        </div>
-
-        <footer>
-            Shaka Player con Google Cast y soporte ClearKey DRM
-        </footer>
+    <div id="video-container">
+      <video id="video" autoplay></video>
     </div>
 
-    <script>
-        const manifestUri = 'https://cdn.cvattv.com.ar/live/c6eds/Canal7/SA_Live_dash_enc/Canal7.mpd';
-        const clearKeyConfig = {
-            'cc8c82ac2ec7e9799527c29db7354e81': 'cc4aae173dd2ef17ae26be3f7ae87662'
-        };
+    <div class="channel-info">
+      <strong>TV Pública Argentina</strong> - Canal 7<br />
+      Grupo: Argentina | Calidad: HD
+    </div>
 
-        async function initApp() {
-            // Instalar polyfills
-            shaka.polyfill.installAll();
+    <footer>Shaka Player con Google Cast y soporte ClearKey DRM</footer>
+  </div>
 
-            if (!shaka.Player.isBrowserSupported()) {
-                console.error('El navegador no es compatible');
-                return;
-            }
+  <script>
+    const manifestUri = 'https://cdn.cvattv.com.ar/live/c6eds/Canal7/SA_Live_dash_enc/Canal7.mpd';
+    const clearKeyConfig = {
+      'cc8c82ac2ec7e9799527c29db7354e81': 'cc4aae173dd2ef17ae26be3f7ae87662'
+    };
 
-            const video = document.getElementById('video');
-            const videoContainer = document.getElementById('video-container');
-            
-            // 1. Crear instancia del Player
-            const player = new shaka.Player(video);
+    async function initApp() {
+      shaka.polyfill.installAll();
 
-            // 2. Configurar UI (Aquí solucionamos el botón de Cast y la duplicación)
-            const ui = new shaka.ui.Overlay(player, videoContainer, video);
+      if (!shaka.Player.isBrowserSupported()) {
+        console.error('El navegador no es compatible con Shaka Player.');
+        return;
+      }
 
-            // Configurar los controles de la UI para incluir el botón de Cast
-            const config = {
-                'controlPanelElements': [
-                    'play_pause',
-                    'time_and_duration',
-                    'spacer',
-                    'mute',
-                    'volume',
-                    'cast', // <--- ESTO AGREGA EL BOTÓN DE CAST NATIVO
-                    'fullscreen',
-                    'overflow_menu'
-                ],
-                'castReceiverAppId': '86E6AFAF' // Tu App ID o usa el default
-            };
-            ui.configure(config);
+      const video = document.getElementById('video');
+      const videoContainer = document.getElementById('video-container');
 
-            // 3. Configurar Player (DRM y Cast Proxy)
-            player.configure({
-                drm: {
-                    clearKeys: clearKeyConfig
-                },
-                // Configuraciones de streaming para mejorar estabilidad
-                streaming: {
-                    bufferingGoal: 30,
-                    rebufferingGoal: 10
-                }
-            });
+      // 1. Crear instancia del Player
+      const player = new shaka.Player(video);
 
-            // Manejo de errores
-            player.addEventListener('error', (event) => {
-                console.error('Error código:', event.detail.code, 'objeto:', event.detail);
-            });
+      // 2. Configurar UI con Overlay
+      const ui = new shaka.ui.Overlay(player, videoContainer, video);
 
-            // Intentar cargar
-            try {
-                await player.load(manifestUri);
-                console.log('Video cargado correctamente');
-            } catch (e) {
-                console.error('Error cargando el manifiesto', e);
-            }
+      // Configurar los controles incluyendo Cast
+      const uiConfig = {
+        controlPanelElements: [
+          'play_pause',
+          'time_and_duration',
+          'spacer',
+          'mute',
+          'volume',
+          'cast',
+          'fullscreen',
+          'overflow_menu'
+        ],
+        castReceiverAppId: '86E6AFAF', // Cambialo por tu App ID real
+        castAndroidReceiverCompatible: true // habilita compatibilidad con Android Receiver
+      };
+      ui.configure(uiConfig);
+
+      // Escuchar cambios de estado en cast
+      const controls = ui.getControls();
+      controls.addEventListener('caststatuschanged', (event) => {
+        console.log('Estado de cast:', event.newStatus);
+      });
+
+      // 3. Configurar Player (DRM + streaming)
+      player.configure({
+        drm: {
+          clearKeys: clearKeyConfig
+        },
+        streaming: {
+          bufferingGoal: 30,
+          rebufferingGoal: 10
         }
+      });
 
-        // Inicialización
-        document.addEventListener('DOMContentLoaded', initApp);
-    </script>
+      // Manejo de errores
+      player.addEventListener('error', (event) => {
+        console.error('Error Shaka:', event.detail);
+      });
+
+      // Cargar el manifiesto
+      try {
+        await player.load(manifestUri);
+        console.log('Video cargado correctamente');
+      } catch (e) {
+        console.error('Error cargando el manifiesto:', e);
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', initApp);
+  </script>
 </body>
-</html>
+    </html>
