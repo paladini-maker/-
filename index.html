@@ -1,266 +1,428 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-<meta charset="utf-8">
-<title>IPTV ClearKey + Shaka + Chromecast</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>IPTV — Shaka + ClearKey + Chromecast</title>
 
 <!-- Shaka Player -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.12.3/shaka-player.ui.min.js"></script>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.12.3/controls.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.12.3/shaka-player.compiled.js"></script>
 
-<!-- Google Cast -->
+<!-- Google Cast Sender -->
 <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
 
 <style>
-body {
-  background:#111;
-  color:#eee;
-  font-family:Arial;
-  padding:20px;
-  text-align:center;
-}
-#video-container { width:100%; max-width:900px; margin:auto; }
-#castBtn {
-  background:#ffcc00;
-  border:none;
-  color:#000;
-  padding:10px 16px;
-  margin-top:15px;
-  border-radius:6px;
-  cursor:pointer;
-  font-size:16px;
-  font-weight:bold;
-}
-.channel-list {
-  margin-top:20px;
-  display:flex;
-  flex-direction:column;
-  align-items:center;
-  gap:10px;
-}
-.channel-item {
-  background:#222;
-  padding:10px;
-  width:90%;
-  max-width:450px;
-  border-radius:6px;
-  cursor:pointer;
-  text-align:left;
-  display:flex;
-  gap:10px;
-  align-items:center;
-}
-.channel-item img {
-  width:50px;
-  height:50px;
-  object-fit:contain;
-}
-.channel-item:hover {
-  background:#333;
-}
+  :root{
+    --bg:#0b0b0b; --panel:#0f1113; --muted:#9aa0a6; --accent:#1db954;
+  }
+  body{ margin:0; font-family:Inter,system-ui,Arial; background:var(--bg); color:#fff; }
+  header{ display:flex; align-items:center; gap:12px; padding:12px; background:#061016; }
+  header h1{ margin:0; font-size:16px; }
+  .wrap{ display:grid; grid-template-columns:320px 1fr; gap:12px; padding:12px; height:calc(100vh - 56px); box-sizing:border-box; }
+  .sidebar{ background:var(--panel); border-radius:8px; padding:12px; overflow:auto; }
+  .list { display:flex; flex-direction:column; gap:8px; }
+  .channel { display:flex; gap:8px; align-items:center; background:#0b0d0f; padding:8px; border-radius:6px; }
+  .channel img{ width:56px; height:36px; object-fit:contain; background:#000; border-radius:4px; }
+  .chmeta{ flex:1; overflow:hidden; }
+  .chname{ font-weight:600; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .chsub{ color:var(--muted); font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .btn { background:transparent; border:1px solid rgba(255,255,255,0.06); color:#fff; padding:6px 8px; border-radius:6px; cursor:pointer; }
+  main{ display:flex; flex-direction:column; gap:10px; }
+  #playerWrap{ background:#000; border-radius:8px; overflow:hidden; }
+  video{ width:100%; height:56vh; background:#000; display:block; }
+  .controls { display:flex; gap:8px; align-items:center; padding:8px; }
+  #castGlobal { margin-left:auto; background:linear-gradient(90deg,#ffd54b,#ffb300); color:#000; border:none; padding:8px 12px; border-radius:6px; cursor:pointer; font-weight:700; }
+  footer{ padding:6px 12px; color:var(--muted); font-size:12px; text-align:right; }
+  @media(max-width:900px){ .wrap{ grid-template-columns:1fr; } video{ height:40vh; } }
 </style>
 </head>
-
 <body>
 
-<h2>IPTV con ClearKey + Shaka + Chromecast</h2>
+<header>
+  <h1>IPTV — Shaka + ClearKey + Chromecast</h1>
+  <div style="margin-left:auto;color:var(--muted);font-size:13px;">HTTPS requerido (GitHub Pages)</div>
+</header>
 
-<!-- Player -->
-<div id="video-container">
-  <video id="video" autoplay muted controls></video>
+<div class="wrap">
+  <aside class="sidebar">
+    <div style="display:flex;gap:8px;margin-bottom:8px;">
+      <input id="filter" placeholder="Buscar canal..." style="flex:1;padding:8px;border-radius:6px;border:0;background:#0b0d0f;color:#fff;outline:none" />
+      <button id="refreshBtn" class="btn">Refrescar</button>
+    </div>
+
+    <div class="list" id="channelList">
+      <!-- canales se renderizan acá -->
+    </div>
+  </aside>
+
+  <main>
+    <div id="playerWrap">
+      <video id="video" controls playsinline></video>
+    </div>
+
+    <div class="controls">
+      <div id="nowInfo">Seleccioná un canal</div>
+      <button id="playLocal" class="btn">▶ Reproducir local</button>
+      <button id="castGlobal" title="Enviar al Chromecast" >📺 Enviar al Chromecast</button>
+    </div>
+
+    <footer>Última carga: <span id="lastUpdate">—</span></footer>
+  </main>
 </div>
 
-<!-- Cast Button -->
-<button id="castBtn">📺 Enviar al Chromecast</button>
-
-<h3>Canales</h3>
-<div class="channel-list" id="channelList"></div>
-
 <script>
-///////////////////////////////////////////////////////////////////////////////
-// CONFIG: Reemplazá con la URL de tu M3U
-///////////////////////////////////////////////////////////////////////////////
-const M3U_URL = "https://raw.githubusercontent.com/paladini-maker/-/refs/heads/main/002.m3u";
+/* ===================== CONFIG ===================== */
+/* Reemplazá esta URL por la de tu repo / lista.m3u */
+const M3U_URL = "https://tuusuario.github.io/tu-repo/lista.m3u";
+/* ================================================= */
 
-let channels = [];
-let currentChannel = null;
+let channels = [];          // array de { name, logo, mpd, kid, key, tvgId, group, chNumber }
+let current = null;         // canal seleccionado
+let player = null;          // instancia Shaka
 
-
-///////////////////////////////////////////////////////////////////////////////
-// 1) Inicializar Shaka
-///////////////////////////////////////////////////////////////////////////////
-async function initShaka() {
-  if (!shaka.Player.isBrowserSupported()) {
-    alert("Tu navegador no soporta Shaka Player.");
-    return;
-  }
-
-  window.player = new shaka.Player(document.getElementById("video"));
-  console.log("Shaka inicializado");
+/* ---------------- util: hex -> base64 ---------------- */
+function hexToBase64(hex) {
+  if (!hex) return "";
+  hex = hex.replace(/\s+/g,"").replace(/^0x/, "");
+  if (hex.length % 2 !== 0) hex = "0" + hex;
+  const bytes = hex.match(/.{1,2}/g).map(b => parseInt(b,16));
+  let binary = "";
+  for (let i=0;i<bytes.length;i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
 }
-document.addEventListener("DOMContentLoaded", initShaka);
 
+/* ---------------- parser robusto M3U ----------------
+   - Soporta KODIPROP:inputstream.adaptive.license_key = KID:KEY (global o por-canal)
+   - Soporta EXTINF con tvg-logo, tvg-id, group-title, ch-number
+   - Relaciona el MPD siguiente con la info previa
+*/
+async function loadM3UAndParse(url) {
+  channels = [];
+  try {
+    const res = await fetch(url, { cache: "no-cache" });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const text = await res.text();
+    document.getElementById("lastUpdate").textContent = new Date().toLocaleString();
 
-///////////////////////////////////////////////////////////////////////////////
-// 2) Descargar y parsear la M3U
-///////////////////////////////////////////////////////////////////////////////
-async function loadM3U() {
-  const text = await fetch(M3U_URL).then(r => r.text());
-  const lines = text.split("\n");
+    let lines = text.split(/\r?\n/);
+    let pending = {};
+    let globalKid = null, globalKey = null;
 
-  let current = {};
+    for (let raw of lines) {
+      const line = raw.trim();
+      if (!line) continue;
 
-  for (let raw of lines) {
-    const line = raw.trim();
-    if (!line) continue;
+      // header with url-tvg (we ignore here)
+      if (line.startsWith("#EXTM3U")) {
+        // nothing
+        continue;
+      }
 
-    // 1) Detectar license_key estilo "KID:KEY"
-    if (line.startsWith("#KODIPROP:inputstream.adaptive.license_key")) {
-      const value = line.split("=")[1].trim();
+      // Global KODIPROP license_key style KID:KEY
+      if (line.startsWith("#KODIPROP:inputstream.adaptive.license_key=")) {
+        const val = line.split("=",2)[1] || "";
+        // sometimes value includes quotes or JSON; try simple kid:key first
+        const s = val.trim().replace(/^"|"$/g,"");
+        if (s.includes(":")) {
+          const [gkid, gkey] = s.split(":");
+          globalKid = gkid.toLowerCase();
+          globalKey = gkey.toLowerCase();
+        } else {
+          // fallback: try to extract if JSON-ish (rare in your lists)
+          try {
+            const j = JSON.parse(s);
+            if (j && j.keys && j.keys[0]) {
+              globalKid = (j.keys[0].kid || "").toLowerCase();
+              globalKey = (j.keys[0].k || "").toLowerCase();
+            }
+          } catch(e){}
+        }
+        continue;
+      }
 
-      if (value.includes(":")) {
-        const [kidHex, keyHex] = value.split(":");
-        current.kid = kidHex.toLowerCase();
-        current.key = keyHex.toLowerCase();
+      // per-channel KODIPROP (can appear before EXTINF or between)
+      if (line.startsWith("#KODIPROP:inputstream.adaptive.license_type")) {
+        // ignore license type line
+        continue;
+      }
+
+      // EXTINF (channel metadata)
+      if (line.startsWith("#EXTINF")) {
+        // init pending with defaulting to global keys (we copy current global)
+        pending = { kid: globalKid, key: globalKey };
+
+        // name
+        const nameMatch = line.match(/,(.*)$/);
+        pending.name = nameMatch ? nameMatch[1].trim() : "Canal";
+
+        // tvg-id
+        const idM = line.match(/tvg-id="(.*?)"/);
+        pending.tvgId = idM ? idM[1] : null;
+
+        // logo
+        const lgM = line.match(/tvg-logo="(.*?)"/);
+        pending.logo = lgM ? lgM[1] : null;
+
+        // group
+        const gM = line.match(/group-title="(.*?)"/);
+        pending.group = gM ? gM[1] : null;
+
+        // ch-number
+        const nM = line.match(/ch-number="(.*?)"/);
+        pending.chNumber = nM ? nM[1] : null;
+
+        continue;
+      }
+
+      // There are lists where #KODIPROP:license_key appears immediately after EXTINF (per-channel)
+      if (line.startsWith("#KODIPROP:inputstream.adaptive.license_key")) {
+        const val = line.split("=",2)[1] || "";
+        const s = val.trim().replace(/^"|"$/g,"");
+        if (s.includes(":")) {
+          const [pkid, pkey] = s.split(":");
+          pending.kid = pkid.toLowerCase();
+          pending.key = pkey.toLowerCase();
+        } else {
+          try {
+            const j = JSON.parse(s);
+            if (j && j.keys && j.keys[0]) {
+              pending.kid = (j.keys[0].kid || "").toLowerCase();
+              pending.key = (j.keys[0].k || "").toLowerCase();
+            }
+          } catch(e){}
+        }
+        continue;
+      }
+
+      // EXTVLCOPT:dash-kid= / dash-key= (some lists use this)
+      if (line.startsWith("#EXTVLCOPT:dash-kid=")) {
+        pending.kid = (line.split("=",2)[1] || "").trim().toLowerCase();
+        continue;
+      }
+      if (line.startsWith("#EXTVLCOPT:dash-key=")) {
+        pending.key = (line.split("=",2)[1] || "").trim().toLowerCase();
+        continue;
+      }
+
+      // MPD URL (end of channel block)
+      if (!line.startsWith("#") && line.includes(".mpd")) {
+        pending.mpd = line;
+        // ensure keys: if pending does not have kid/key, use global ones
+        if (!pending.kid && globalKid) pending.kid = globalKid;
+        if (!pending.key && globalKey) pending.key = globalKey;
+
+        // push only if have mpd; keys optional (we can still try streaming without DRM)
+        channels.push({
+          name: pending.name || pending.mpd,
+          logo: pending.logo || "",
+          group: pending.group || "",
+          tvgId: pending.tvgId || "",
+          chNumber: pending.chNumber || "",
+          mpd: pending.mpd,
+          kid: pending.kid ? pending.kid.toLowerCase() : null,
+          key: pending.key ? pending.key.toLowerCase() : null
+        });
+
+        pending = {}; // reset
       }
     }
 
-    // 2) EXTINF: info del canal
-    if (line.startsWith("#EXTINF")) {
-      const nameMatch = line.match(/,(.*)$/);
-      const logoMatch = line.match(/tvg-logo="(.*?)"/);
-
-      current.name = nameMatch ? nameMatch[1] : "Canal";
-      current.logo = logoMatch ? logoMatch[1] : "";
-    }
-
-    // 3) MPD URL → fin del canal
-    if (line.startsWith("http") && line.includes(".mpd")) {
-      current.mpd = line;
-
-      // Guardar solo si tiene KID + KEY
-      if (current.kid && current.key && current.mpd) {
-        channels.push({ ...current });
-      }
-
-      current = {}; // reset
-    }
+    renderChannelList();
+  } catch (err) {
+    console.error("Error cargando M3U:", err);
+    alert("Error cargando M3U: " + err.message);
   }
-
-  renderChannelList();
 }
 
-///////////////////////////////////////////////////////////////////////////////
-// 3) Mostrar lista de canales
-///////////////////////////////////////////////////////////////////////////////
+/* ---------------- render UI ---------------- */
 function renderChannelList() {
-  const cont = document.getElementById("channelList");
-  cont.innerHTML = "";
-
+  const el = document.getElementById("channelList");
+  el.innerHTML = "";
   channels.forEach((ch, idx) => {
     const div = document.createElement("div");
-    div.className = "channel-item";
-
+    div.className = "channel";
     div.innerHTML = `
-      <img src="${ch.logo || 'https://via.placeholder.com/50'}">
-      <div>
-        <strong>${ch.name}</strong><br>
-        <small>${ch.mpd}</small>
+      <img src="${ch.logo || 'https://via.placeholder.com/120x76?text=No+Logo'}" alt="">
+      <div class="chmeta">
+        <div class="chname">${ch.name}</div>
+        <div class="chsub">${ch.group || ''} ${ch.chNumber ? '• ' + ch.chNumber : ''} ${ch.tvgId ? '• ' + ch.tvgId : ''}</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px;">
+        <button class="btn" data-idx="${idx}" onclick="selectChannel(${idx})">Seleccionar</button>
+        <button class="btn" data-idx="${idx}" onclick="castChannelByIndex(${idx})">📺 Cast</button>
       </div>
     `;
-
-    div.onclick = () => loadChannel(ch);
-    cont.appendChild(div);
+    el.appendChild(div);
   });
 }
 
+/* ---------------- Shaka init ---------------- */
+async function initShaka() {
+  shaka.polyfill.installAll();
+  if (!shaka.Player.isBrowserSupported()) {
+    alert("Navegador no soportado por Shaka Player.");
+    return;
+  }
+  player = new shaka.Player(document.getElementById("video"));
+  player.addEventListener('error', e => console.error("Shaka error", e));
+  console.log("Shaka listo");
+}
 
-///////////////////////////////////////////////////////////////////////////////
-// 4) Cargar un canal en Shaka (local)
-///////////////////////////////////////////////////////////////////////////////
-async function loadChannel(ch) {
+/* ---------------- select & play local ---------------- */
+async function selectChannel(idx) {
+  current = channels[idx];
+  document.getElementById("nowInfo").textContent = `Seleccionado: ${current.name}`;
+}
+
+async function playLocal() {
+  if (!current) {
+    alert("Seleccioná un canal primero.");
+    return;
+  }
   try {
-    await player.configure({
-      drm: { clearKeys: { [ch.kid]: ch.key } }
-    });
-
-    await player.load(ch.mpd);
-    currentChannel = ch;
-
-    console.log("Reproduciendo:", ch.name);
+    // configure ClearKey if exists (Shaka acepta hex)
+    if (current.kid && current.key) {
+      await player.configure({
+        drm: { clearKeys: { [current.kid]: current.key } }
+      });
+    } else {
+      // clear keys off
+      await player.configure({ drm: {} });
+    }
+    await player.load(current.mpd);
+    console.log("Reproduciendo local:", current.name);
   } catch (e) {
-    console.error("Error cargando canal:", e);
+    console.error("Error reproducir local:", e);
+    alert("Error reproducir local. Mira consola.");
   }
 }
 
-
-///////////////////////////////////////////////////////////////////////////////
-// 5) Inicializar Cast
-///////////////////////////////////////////////////////////////////////////////
-window.__onGCastApiAvailable = (isAvailable) => {
+/* ---------------- Cast setup ---------------- */
+window.__onGCastApiAvailable = function(isAvailable) {
   if (isAvailable) {
-    cast.framework.CastContext.getInstance().setOptions({
+    const ctx = cast.framework.CastContext.getInstance();
+    ctx.setOptions({
       receiverApplicationId: chrome.cast.media.DEFAULT_MEDIA_RECEIVER_APP_ID,
       autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
     });
-    console.log("Google Cast listo");
+    console.log("Cast API lista");
+  } else {
+    console.log("Cast API no disponible");
   }
 };
 
-
-///////////////////////////////////////////////////////////////////////////////
-// 6) Enviar canal al Chromecast
-///////////////////////////////////////////////////////////////////////////////
-async function castChannel(ch) {
-  const context = cast.framework.CastContext.getInstance();
-  let session = context.getCurrentSession();
-
-  if (!session) {
-    await context.requestSession();
-    session = context.getCurrentSession();
-  }
-
-  const mediaInfo = new chrome.cast.media.MediaInfo(ch.mpd, "application/dash+xml");
-
-  // Metadata
-  const metadata = new chrome.cast.media.GenericMediaMetadata();
-  metadata.title = ch.name;
-  if (ch.logo) metadata.images = [{ url: ch.logo }];
-  mediaInfo.metadata = metadata;
-
-  // ClearKey
-  mediaInfo.customData = {
-    drm: {
-      type: "clearkey",
-      clearkeys: { [ch.kid]: ch.key }
-    }
-  };
-
-  const req = new chrome.cast.media.LoadRequest(mediaInfo);
-
-  session.loadMedia(req)
-    .then(() => console.log("Enviado al Chromecast:", ch.name))
-    .catch(err => console.error("Error en Cast:", err));
+/* ---------------- cast helpers ---------------- */
+function castChannelByIndex(idx) {
+  selectChannel(idx);
+  // request session then send
+  castChannel(current);
 }
 
+async function castChannel(ch) {
+  if (!ch) { alert("No hay canal seleccionado"); return; }
 
-///////////////////////////////////////////////////////////////////////////////
-// 7) Botón Cast
-///////////////////////////////////////////////////////////////////////////////
-document.getElementById("castBtn").onclick = () => {
-  if (!currentChannel) {
-    alert("Primero seleccioná un canal");
-    return;
+  try {
+    const ctx = cast.framework.CastContext.getInstance();
+    // requestSession will open the Cast picker if none
+    if (!ctx.getCurrentSession()) {
+      await ctx.requestSession();
+    }
+    const session = ctx.getCurrentSession();
+    if (!session) throw new Error("No session");
+
+    // Build MediaInfo for DASH
+    const mediaInfo = new chrome.cast.media.MediaInfo(ch.mpd, "application/dash+xml");
+
+    // Metadata
+    const metadata = new chrome.cast.media.GenericMediaMetadata();
+    metadata.title = ch.name;
+    if (ch.logo) metadata.images = [{ url: ch.logo }];
+    mediaInfo.metadata = metadata;
+
+    // Prepare clearkeys in multiple formats: hex and base64 (algunos receivers esperan base64)
+    const keys = {};
+    if (ch.kid && ch.key) {
+      const kidHex = ch.kid.replace(/^0x/, "").toLowerCase();
+      const keyHex = ch.key.replace(/^0x/, "").toLowerCase();
+      const kidB64 = hexToBase64(kidHex);
+      const keyB64 = hexToBase64(keyHex);
+
+      // Put both variants (some receivers expect hex, otros base64)
+      keys[kidHex] = keyHex;
+      keys[kidB64] = keyB64;
+    }
+
+    // Attach customData in a couple of common shapes to maximize compatibility
+    //  - customData.clearkeys
+    //  - customData.drm.clearkeys
+    //  - customData.drm.type = "clearkey"
+    mediaInfo.customData = {
+      clearkeys: Object.keys(keys).length ? keys : undefined,
+      drm: Object.keys(keys).length ? { type: "clearkey", clearkeys: keys } : undefined
+    };
+
+    const request = new chrome.cast.media.LoadRequest(mediaInfo);
+    request.autoplay = true;
+    request.currentTime = 0;
+
+    session.loadMedia(request)
+      .then(() => {
+        console.log("Carga al Chromecast OK:", ch.name);
+      })
+      .catch(err => {
+        console.error("Error enviando al Chromecast:", err);
+        alert("Error enviando al Chromecast. Revisa consola.");
+      });
+
+  } catch (err) {
+    console.error("Error Cast flow:", err);
+    alert("Error en flujo de Cast: " + err.message);
   }
-  castChannel(currentChannel);
-};
+}
 
+/* ---------------- UI wiring ---------------- */
+document.getElementById("refreshBtn").addEventListener("click", () => {
+  loadM3UAndParse(M3U_URL);
+});
+document.getElementById("playLocal").addEventListener("click", playLocal);
+document.getElementById("castGlobal").addEventListener("click", () => {
+  if (!current) { alert("Seleccioná un canal primero."); return; }
+  castChannel(current);
+});
+document.getElementById("filter").addEventListener("input", (e) => {
+  const q = (e.target.value || "").toLowerCase();
+  const filtered = channels.filter(c => {
+    return (c.name && c.name.toLowerCase().includes(q))
+      || (c.group && c.group.toLowerCase().includes(q))
+      || (c.tvgId && c.tvgId.toLowerCase().includes(q))
+      || (c.chNumber && String(c.chNumber).includes(q));
+  });
+  // render filtered
+  const el = document.getElementById("channelList");
+  el.innerHTML = "";
+  filtered.forEach((c, idx) => {
+    const div = document.createElement("div");
+    div.className = "channel";
+    div.innerHTML = `
+      <img src="${c.logo || 'https://via.placeholder.com/120x76?text=No+Logo'}" alt="">
+      <div class="chmeta">
+        <div class="chname">${c.name}</div>
+        <div class="chsub">${c.group || ''} ${c.chNumber ? '• ' + c.chNumber : ''}</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px;">
+        <button class="btn" onclick="selectChannel(${channels.indexOf(c)})">Seleccionar</button>
+        <button class="btn" onclick="castChannelByIndex(${channels.indexOf(c)})">📺 Cast</button>
+      </div>
+    `;
+    el.appendChild(div);
+  });
+});
 
-///////////////////////////////////////////////////////////////////////////////
-// 8) Arrancar todo
-///////////////////////////////////////////////////////////////////////////////
-loadM3U();
+/* ---------------- inicio ---------------- */
+document.addEventListener("DOMContentLoaded", async () => {
+  await initShaka();
+  await loadM3UAndParse(M3U_URL);
+});
 </script>
 
 </body>
