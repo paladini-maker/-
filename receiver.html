@@ -1,30 +1,52 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Mi Custom Receiver</title>
-    <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
-    <style>
-        body { overflow: hidden; background: #000; }
-        cast-media-player {
-            --splash-image: url("tu-logo.png");
-            --progress-color: #FF0000; /* Personaliza la barra de progreso */
-        }
-    </style>
+<meta charset="UTF-8">
+<title>Receiver — Shaka + ClearKey</title>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.12/shaka-player.compiled.js"></script>
+<script src="https://www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
+
+<style>
+  body { margin:0; background:#000; }
+  video { width:100vw; height:100vh; object-fit:contain; background:black; }
+</style>
 </head>
+
 <body>
-    <cast-media-player></cast-media-player>
+<video id="video" autoplay muted></video>
 
-    <script>
-        // Inicialización del contexto
-        const context = cast.framework.CastReceiverContext.getInstance();
-        const playerManager = context.getPlayerManager();
+<script>
+const context = cast.framework.CastReceiverContext.getInstance();
+const playerManager = context.getPlayerManager();
+const video = document.getElementById("video");
 
-        // Opcional: Configurar opciones de reproducción
-        const options = new cast.framework.CastReceiverOptions();
-        options.maxInactivity = 3600; // Segundos antes de cerrarse por inactividad
+const clearkeys = {
+  "1ae8ccd0e6d74a618c5b2dd9e75a01a5": "3ae8ccd0e6d74a618c5b2dd9e75a01a5"
+};
 
-        // Iniciar la aplicación
-        context.start(options);
-    </script>
+playerManager.setMessageInterceptor(
+  cast.framework.messages.MessageType.LOAD,
+  async (request) => {
+    if (request.media && request.media.customData) {
+      const url = request.media.contentId;
+
+      const player = new shaka.Player(video);
+      player.configure({
+        drm: {
+          clearKeys: clearkeys,
+        }
+      });
+
+      console.log("Receiver cargando:", url);
+      await player.load(url);
+    }
+
+    return request;
+  }
+);
+
+context.start();
+</script>
 </body>
 </html>
