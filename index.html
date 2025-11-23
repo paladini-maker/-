@@ -1,72 +1,59 @@
-<!DOCTYPE html><html lang="es">
+<!DOCTYPE html>
+<html>
 <head>
-<meta charset="UTF-8" />
-<title>Sender — Shaka + ClearKey + Cast (FIXED)</title><!-- Shaka Player UI --><script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.12/shaka-player.ui.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.12/controls.min.css"/><style>
-  body { background:#111; color:#fff; font-family: Arial; margin:0; padding:20px; }
-  #video { width:100%; max-width:900px; margin:auto; }
-</style></head><body>
-<h2>Shaka Player + ClearKey + Chromecast</h2><div id="video-container" data-shaka-player-container>
-  <video id="video" data-shaka-player autoplay></video>
-</div><!-- Google Cast Sender (correct load order) --><script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1" onload="initializeCast()"></script><script>
-const APP_ID = "86E6AFAF";
-const mpdUrl = "https://storage.googleapis.com/shaka-demo-assets/angel-one/dash.mpd";
+    <title>Cast Sender Test</title>
+    <script src="//www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
+</head>
+<body>
 
-const clearkeys = {
-  "1ae8ccd0e6d74a618c5b2dd9e75a01a5": "3ae8ccd0e6d74a618c5b2dd9e75a01a5"
-};
+    <h2>Prueba Minimalista Sender</h2>
+    
+    <google-cast-launcher></google-cast-launcher>
+    
+    <br><br>
+    <button onclick="loadMedia()">Cargar Video (DASH)</button>
 
-// FIRST: Initialize Cast
-function initializeCast() {
-  console.log("Cast framework loaded");
+    <script>
+        // --- CONFIGURACIÓN ---
+        // REEMPLAZA ESTO CON TU ID DE LA CONSOLA DE CAST
+        const applicationID = 'TU_APP_ID_AQUI'; 
+        
+        // Video de prueba (Angel One - DASH)
+        const streamUrl = 'https://storage.googleapis.com/shaka-demo-assets/angel-one/dash.mpd';
+        const streamType = 'application/dash+xml';
 
-  const context = cast.framework.CastContext.getInstance();
-  context.setOptions({
-    receiverApplicationId: APP_ID,
-    autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
-  });
+        // 1. Inicialización
+        window['__onGCastApiAvailable'] = function(isAvailable) {
+            if (isAvailable) {
+                cast.framework.CastContext.getInstance().setOptions({
+                    receiverApplicationId: applicationID,
+                    autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
+                });
+            }
+        };
 
-  console.log("Cast initialized");
-  initShaka();
-}
+        // 2. Función para enviar el video
+        function loadMedia() {
+            const castSession = cast.framework.CastContext.getInstance().getCurrentSession();
+            
+            if (!castSession) {
+                alert('Primero conéctate al Chromecast usando el icono.');
+                return;
+            }
 
-// THEN: Shaka
-async function initShaka() {
-  console.log("Initializing Shaka UI...");
+            const mediaInfo = new chrome.cast.media.MediaInfo(streamUrl, streamType);
+            // Metadata opcional para que se vea bonito en pantalla
+            mediaInfo.metadata = new chrome.cast.media.GenericMediaMetadata();
+            mediaInfo.metadata.title = 'Shaka Test Video';
+            mediaInfo.metadata.subtitle = 'Minimalist Test';
 
-  shaka.polyfill.installAll();
-  if (!shaka.Player.isBrowserSupported()) {
-    console.error("Browser not supported");
-    return;
-  }
+            const request = new chrome.cast.media.LoadRequest(mediaInfo);
 
-  const video = document.getElementById("video");
-  const ui = video["ui"];
-  const controls = ui.getControls();
-  const player = controls.getPlayer();
-
-  player.configure({
-    drm: {
-      clearKeys: clearkeys
-    }
-  });
-
-  try {
-    await player.load(mpdUrl);
-    console.log("MPD loaded successfully");
-  } catch (e) {
-    console.error("Error loading MPD", e);
-  }
-}
-
-// Debug cast button
-
-document.addEventListener("shaka-ui-loaded", () => {
-  const video = document.getElementById("video");
-  const ui = video["ui"];
-  const controls = ui.getControls();
-  const castButton = controls.getControlsContainer().querySelector(".shaka-cast-button");
-
-  console.log("Detected Cast Button:", castButton);
-});
-</script></body>
+            castSession.loadMedia(request).then(
+                function() { console.log('Carga exitosa'); },
+                function(errorCode) { console.error('Error al cargar:', errorCode); }
+            );
+        }
+    </script>
+</body>
 </html>
