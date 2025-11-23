@@ -1,346 +1,92 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Shaka Player + Google Cast</title>
-    
-    <!-- Estilos de Shaka Player -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/controls.min.css">
-    
-    <style>
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
-        
-        body {
-            background: linear-gradient(135deg, #1a2a6c, #b21f1f, #fdbb2d);
-            color: white;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            min-height: 100vh;
-            padding: 20px;
-        }
-        
-        .container {
-            max-width: 800px;
-            width: 100%;
-            margin: 0 auto;
-        }
-        
-        header {
-            text-align: center;
-            margin-bottom: 30px;
-            padding: 20px;
-            background: rgba(0, 0, 0, 0.5);
-            border-radius: 15px;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
-        }
-        
-        h1 {
-            font-size: 2.5rem;
-            margin-bottom: 10px;
-            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
-        }
-        
-        .subtitle {
-            font-size: 1.2rem;
-            opacity: 0.9;
-        }
-        
-        .video-container {
-            width: 100%;
-            margin: 0 auto 30px;
-            position: relative;
-            border-radius: 10px;
-            overflow: hidden;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-        }
-        
-        video {
-            width: 100%;
-            height: auto;
-            display: block;
-        }
-        
-        .status-panel {
-            background: rgba(0, 0, 0, 0.7);
-            border-radius: 10px;
-            padding: 20px;
-            margin-bottom: 20px;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
-        }
-        
-        .status-title {
-            font-size: 1.2rem;
-            margin-bottom: 10px;
-            color: #fdbb2d;
-            display: flex;
-            align-items: center;
-        }
-        
-        .status-title i {
-            margin-right: 10px;
-        }
-        
-        .status-content {
-            padding: 15px;
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 8px;
-            min-height: 60px;
-            display: flex;
-            align-items: center;
-        }
-        
-        .error {
-            color: #ff6b6b;
-            background: rgba(255, 107, 107, 0.1);
-            padding: 15px;
-            border-radius: 8px;
-            margin-top: 15px;
-            display: none;
-            border-left: 4px solid #ff6b6b;
-        }
-        
-        .info-box {
-            background: rgba(0, 0, 0, 0.7);
-            border-radius: 10px;
-            padding: 20px;
-            margin-top: 20px;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
-        }
-        
-        .info-title {
-            font-size: 1.2rem;
-            margin-bottom: 15px;
-            color: #4dabf7;
-        }
-        
-        .info-content {
-            line-height: 1.6;
-        }
-        
-        .cast-info {
-            display: flex;
-            align-items: center;
-            margin-top: 10px;
-            padding: 10px;
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 8px;
-        }
-        
-        .cast-icon {
-            margin-right: 10px;
-            font-size: 1.5rem;
-        }
-        
-        .success {
-            color: #51cf66;
-        }
-        
-        .warning {
-            color: #ffd43b;
-        }
-        
-        .error-text {
-            color: #ff6b6b;
-        }
-        
-        @media (max-width: 768px) {
-            h1 {
-                font-size: 2rem;
-            }
-            
-            .container {
-                padding: 0 10px;
-            }
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <header>
-            <h1>Shaka Player + Google Cast</h1>
-            <p class="subtitle">Reproducción de video con capacidad de transmisión a dispositivos Chromecast</p>
-        </header>
-        
-        <div class="video-container" data-shaka-player-container>
-            <video data-shaka-player id="video" 
-                   poster="//shaka-player-demo.appspot.com/assets/poster.jpg"
-                   playsinline></video>
-        </div>
-        
-        <div class="status-panel">
-            <div class="status-title">
-                <i>📊</i> Estado del reproductor
-            </div>
-            <div class="status-content" id="status">
-                Inicializando Shaka Player y Google Cast...
-            </div>
-            <div class="cast-info" id="cast-info">
-                <span class="cast-icon">📡</span>
-                <span id="cast-status">Buscando dispositivos Chromecast...</span>
-            </div>
-        </div>
-        
-        <div class="error" id="error"></div>
-        
-        <div class="info-box">
-            <div class="info-title">
-                <i>ℹ️</i> Información
-            </div>
-            <div class="info-content">
-                <p>Este reproductor utiliza Shaka Player para reproducir contenido en formato DASH y se integra con Google Cast para permitir la transmisión a dispositivos Chromecast.</p>
-                <p>Para usar la función Cast, asegúrate de tener un dispositivo Chromecast en la misma red y haz clic en el botón de transmisión en los controles del reproductor.</p>
-            </div>
-        </div>
-    </div>
+<meta charset="UTF-8" />
+<title>Sender — Shaka + ClearKey + Cast</title>
 
-    <script defer src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.ui.min.js"></script>
+<!-- Shaka Player UI -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.12/shaka-player.ui.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.12/controls.min.css"/>
+
+<!-- Google Cast Sender -->
+<script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
+
+<style>
+  body { background:#111; color:#fff; font-family: Arial; margin:0; padding:20px; }
+  #video { width:100%; max-width:900px; margin:auto; }
+</style>
+</head>
+
+<body>
+<h2>Shaka Player + ClearKey + Chromecast</h2>
+
+<div id="video-container" data-shaka-player-container>
+  <video id="video" data-shaka-player autoplay controls></video>
+</div>
 
 <script>
-const manifestUri = 'https://storage.googleapis.com/shaka-demo-assets/angel-one/dash.mpd';
-const CAST_APP_ID = 'CC1AD845';
+const APP_ID = "86E6AFAF";  // Tu custom receiver
 
-let castContext = null;
-let ui = null;
-let player = null;
+const mpdUrl = "https://storage.googleapis.com/shaka-demo-assets/angel-one/dash.mpd";
 
-window.__onGCastApiAvailable = function(isAvailable) {
-    const statusEl = document.getElementById("status");
-    const castEl = document.getElementById("cast-status");
-
-    if (!isAvailable) {
-        statusEl.textContent = "Cast SDK no disponible. Iniciando modo local…";
-        initPlayer(false);
-        return;
-    }
-
-    try {
-        castContext = cast.framework.CastContext.getInstance();
-        castContext.setOptions({
-            receiverApplicationId: CAST_APP_ID,
-            autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
-        });
-
-        castEl.textContent = "Cast disponible — buscando dispositivos…";
-        castEl.className = "success";
-
-        initPlayer(true);
-    } catch (e) {
-        console.error("Error Cast:", e);
-        castEl.textContent = "Error inicializando Cast";
-        castEl.className = "error-text";
-        initPlayer(false);
-    }
+const clearkeys = {
+  "1ae8ccd0e6d74a618c5b2dd9e75a01a5": "3ae8ccd0e6d74a618c5b2dd9e75a01a5"
 };
 
-async function initPlayer(enableCast) {
-    const video = document.getElementById("video");
-    const container = document.querySelector(".video-container");
-    const statusEl = document.getElementById("status");
+async function initShaka() {
+  shaka.polyfill.installAll();
+  if (!shaka.Player.isBrowserSupported()) {
+    console.error("Navegador no soportado");
+    return;
+  }
 
-    try {
-        player = new shaka.Player(video);
+  const video = document.getElementById("video");
+  const player = new shaka.Player(video);
 
-        ui = new shaka.ui.Overlay(player, container, video);
-
-        const uiConfig = {
-            controlPanelElements: [
-                "play_pause",
-                "mute",
-                "volume",
-                "time_and_duration",
-                "spacer",
-                enableCast ? "cast" : "",
-                "fullscreen",
-                "overflow_menu"
-            ],
-            overflowMenuButtons: [
-                "quality",
-                "language",
-                "playback_rate",
-                "picture_in_picture"
-            ].filter(Boolean),
-            cast: enableCast ? { receiverApplicationId: CAST_APP_ID } : undefined
-        };
-
-        ui.configure(uiConfig);
-
-        player.addEventListener("error", err => showError(err.detail));
-
-        if (enableCast) {
-            castContext.addEventListener(
-                cast.framework.CastContextEventType.SESSION_STATE_CHANGED,
-                onCastSessionChange
-            );
-            castContext.addEventListener(
-                cast.framework.CastContextEventType.CAST_STATE_CHANGED,
-                onCastStateChange
-            );
-        }
-
-        await player.load(manifestUri);
-        statusEl.textContent = enableCast
-            ? "Reproducción lista. Cast habilitado."
-            : "Reproducción lista (sin Cast).";
-
-    } catch (e) {
-        showError(e);
+  player.configure({
+    drm: {
+      clearKeys: clearkeys
     }
+  });
+
+  try {
+    await player.load(mpdUrl);
+    console.log("Cargado en local");
+  } catch (e) {
+    console.error("Error loading MPD:", e);
+  }
 }
 
-function onCastSessionChange(e) {
-    const text = document.getElementById("cast-status");
-    const status = document.getElementById("status");
+// ---- CAST SENDER SETUP ----
+window.castFramework = window.castFramework || {};
+let castContext;
 
-    switch (e.sessionState) {
-        case "SESSION_STARTED":
-            status.textContent = "Transmitiendo a Chromecast";
-            text.textContent = "Transmisión activa";
-            text.className = "success";
-            break;
-        case "SESSION_RESUMED":
-            status.textContent = "Sesión Cast reanudada";
-            text.textContent = "Conectado";
-            text.className = "success";
-            break;
-        case "SESSION_ENDED":
-            status.textContent = "Sesión Cast finalizada — volviendo a local";
-            text.textContent = "No conectado";
-            text.className = "";
-            break;
-    }
-}
+window.onload = () => {
+  initShaka();
 
-function onCastStateChange(e) {
-    const el = document.getElementById("cast-status");
+  castContext = cast.framework.CastContext.getInstance();
+  castContext.setOptions({
+    receiverApplicationId: APP_ID,
+    autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
+  });
 
-    if (e.castState === "NO_DEVICES_AVAILABLE") {
-        el.textContent = "No hay Chromecasts disponibles";
-        el.className = "warning";
-    }
-}
+  cast.framework.CastContext.getInstance().addEventListener(
+    cast.framework.CastContextEventType.CAST_STATE_CHANGED,
+    (e) => console.log("Cast:", e.castState)
+  );
+};
 
-function showError(error) {
-    console.error(error);
-    const errorEl = document.getElementById("error");
-    const status = document.getElementById("status");
+// ---- BOTÓN CAST NATIVO DE SHAKA ----
+document.addEventListener("shaka-ui-loaded", () => {
+  const video = document.getElementById("video");
+  const ui = video["ui"];
+  const controls = ui.getControls();
 
-    errorEl.style.display = "block";
-    errorEl.textContent = `Error: ${error.code || ''} ${error.message || ''}`;
-    status.textContent = "Error durante la reproducción";
-}
+  controls.getPlayer().configure({ drm: { clearKeys: clearkeys } });
 
-window.addEventListener("beforeunload", () => {
-    if (ui) ui.destroy();
-    if (player) player.destroy();
+  const castButton = controls.getControlsContainer().querySelector(".shaka-cast-button");
+  console.log("Cast Button:", castButton);
 });
 </script>
 </body>
-    </html>
+</html>
