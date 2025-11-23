@@ -9,18 +9,48 @@
     <style>
         /* Fuente principal Inter */
         html { font-family: 'Inter', sans-serif; }
-        /* Aseguramos que el botón de Cast tenga visibilidad y tamaño adecuado en móvil */
+        
+        /* Contenedor principal para permitir posicionamiento absoluto */
+        body {
+            position: relative;
+        }
+
+        /* Estilos específicos para el botón de Cast para asegurar visibilidad */
         google-cast-launcher {
+            /* Colores de Icono */
             --google-cast-icon-color: #4f46e5;
             --google-cast-icon-color-hover: #4338ca;
+            /* Aseguramos que el componente tome un tamaño visible */
+            width: 44px;
+            height: 44px;
+            min-width: 44px;
+            min-height: 44px;
             cursor: pointer;
             outline: none;
-            /* Estilo para que se vea bien como un icono grande y tocable */
-            padding: 10px; 
+            display: block; /* Asegura que se comporta como un bloque */
         }
+
+        /* Posicionamiento del botón en la esquina superior derecha, común en apps de Cast */
+        #castButtonContainer {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            z-index: 50; /* Asegura que esté por encima de otros elementos */
+            padding: 10px; /* Espacio táctil adecuado en móvil */
+            border-radius: 50%;
+            transition: background-color 0.2s;
+        }
+
     </style>
 </head>
 <body class="bg-gray-100 min-h-screen flex items-center justify-center p-4">
+    
+    <!-- Contenedor del Botón de Cast (Movido a la esquina superior derecha) -->
+    <div id="castButtonContainer">
+        <google-cast-launcher id="castButton"></google-cast-launcher>
+    </div>
+
+    <!-- Contenedor Principal de la Aplicación -->
     <div class="w-full max-w-lg bg-white shadow-2xl rounded-xl p-8 space-y-6">
 
         <h1 class="text-3xl font-extrabold text-indigo-700 text-center">
@@ -33,11 +63,6 @@
         <!-- AVISO CRÍTICO DE COMPATIBILIDAD CON CHROME EN ANDROID -->
         <div class="p-3 text-xs rounded-lg bg-yellow-100 text-yellow-800 border-l-4 border-yellow-500 font-medium">
             ¡IMPORTANTE! Para asegurar la compatibilidad con Chrome en Android, esta aplicación **DEBE** ser accedida a través de **HTTPS**. Los navegadores móviles bloquean la API de Cast en orígenes inseguros (HTTP).
-        </div>
-
-        <!-- Botón de Conexión de Chromecast (provisto por el SDK) -->
-        <div class="flex justify-center pt-4 pb-2">
-            <google-cast-launcher id="castButton" class="text-4xl"></google-cast-launcher>
         </div>
 
         <!-- Estado de la Sesión -->
@@ -92,7 +117,6 @@
     </div>
 
     <!-- Carga del SDK de Cast -->
-    <!-- El parámetro loadCastFramework=1 asegura la compatibilidad con el framework moderno, incluyendo Chrome en Android. -->
     <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
 
     <script>
@@ -164,7 +188,7 @@
                 if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
                     updateStatus('Advertencia: El Cast Button podría no funcionar en Chrome móvil (Android) porque la página NO se sirve vía HTTPS.', 'error');
                 } else {
-                    updateStatus('SDK de Cast disponible. Presiona el ícono para conectar.', 'info');
+                    updateStatus('SDK de Cast disponible. Presiona el ícono en la esquina superior derecha para conectar.', 'info');
                 }
             } else {
                 updateStatus('Error: SDK de Cast no disponible.', 'error');
@@ -217,7 +241,7 @@
                 case cast.framework.SessionState.NO_SESSION:
                     // El mensaje de advertencia de HTTPS se maneja en __onGCastApiAvailable
                     if (window.location.protocol === 'https:' || window.location.hostname === 'localhost') {
-                         updateStatus('Listo para conectar. Presiona el ícono.', 'info');
+                         updateStatus('Listo para conectar. Presiona el ícono en la esquina superior derecha.', 'info');
                     }
                     toggleMediaControls(false);
                     castSession = null;
