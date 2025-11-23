@@ -8,9 +8,6 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.12/shaka-player.ui.min.js"></script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.12/controls.min.css"/>
 
-<!-- Google Cast Sender -->
-<script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
-
 <style>
   body { background:#111; color:#fff; font-family: Arial; margin:0; padding:20px; }
   #video { width:100%; max-width:900px; margin:auto; }
@@ -21,72 +18,59 @@
 <h2>Shaka Player + ClearKey + Chromecast</h2>
 
 <div id="video-container" data-shaka-player-container>
-  <video id="video" data-shaka-player autoplay controls></video>
+  <video id="video" data-shaka-player autoplay></video>
 </div>
 
-<script>
-const APP_ID = "86E6AFAF";  // Tu custom receiver
+<!-- Google Cast Sender -->
+<script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"
+        onload="initializeCast()"></script>
 
+<script>
+const APP_ID = "86E6AFAF";
 const mpdUrl = "https://storage.googleapis.com/shaka-demo-assets/angel-one/dash.mpd";
 
 const clearkeys = {
   "1ae8ccd0e6d74a618c5b2dd9e75a01a5": "3ae8ccd0e6d74a618c5b2dd9e75a01a5"
 };
 
-async function initShaka() {
-  shaka.polyfill.installAll();
-  if (!shaka.Player.isBrowserSupported()) {
-    console.error("Navegador no soportado");
-    return;
-  }
+function initializeCast() {
+  console.log("Cast READY");
+
+  const castContext = cast.framework.CastContext.getInstance();
+  castContext.setOptions({
+    receiverApplicationId: APP_ID,
+    autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED,
+  });
+
+  // Shaka UI se inicializa DESPUÉS de la configuración Cast
+  document.addEventListener("shaka-ui-loaded", onShakaLoaded);
+}
+
+async function onShakaLoaded() {
+  console.log("Shaka UI ready");
 
   const video = document.getElementById("video");
-  const player = new shaka.Player(video);
+  const ui = video["ui"];
+  const controls = ui.getControls();
+  const player = controls.getPlayer();
 
   player.configure({
     drm: {
-      clearKeys: clearkeys
+      clearKeys: clearkeys,
     }
   });
 
   try {
     await player.load(mpdUrl);
-    console.log("Cargado en local");
-  } catch (e) {
-    console.error("Error loading MPD:", e);
+    console.log("MPD cargado");
+  } catch (err) {
+    console.error(err);
   }
+
+  const castButton = document.querySelector(".shaka-cast-button");
+  console.log("Botón cast:", castButton);
 }
-
-// ---- CAST SENDER SETUP ----
-window.castFramework = window.castFramework || {};
-let castContext;
-
-window.onload = () => {
-  initShaka();
-
-  castContext = cast.framework.CastContext.getInstance();
-  castContext.setOptions({
-    receiverApplicationId: APP_ID,
-    autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
-  });
-
-  cast.framework.CastContext.getInstance().addEventListener(
-    cast.framework.CastContextEventType.CAST_STATE_CHANGED,
-    (e) => console.log("Cast:", e.castState)
-  );
-};
-
-// ---- BOTÓN CAST NATIVO DE SHAKA ----
-document.addEventListener("shaka-ui-loaded", () => {
-  const video = document.getElementById("video");
-  const ui = video["ui"];
-  const controls = ui.getControls();
-
-  controls.getPlayer().configure({ drm: { clearKeys: clearkeys } });
-
-  const castButton = controls.getControlsContainer().querySelector(".shaka-cast-button");
-  console.log("Cast Button:", castButton);
-});
 </script>
+
 </body>
 </html>
