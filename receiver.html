@@ -1,52 +1,46 @@
 <!DOCTYPE html>
 <html>
 <head>
-<meta charset="UTF-8">
-<title>Receiver — Shaka + ClearKey</title>
-
-<script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.12/shaka-player.compiled.js"></script>
-<script src="https://www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
-
-<style>
-  body { margin:0; background:#000; }
-  video { width:100vw; height:100vh; object-fit:contain; background:black; }
-</style>
+    <meta charset="utf-8">
+    <title>Shaka Cast Receiver Minimal</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.6/shaka-player.compiled.js"></script>
+    <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
+    
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; }
+        video { width: 100%; height: 100%; }
+    </style>
 </head>
-
 <body>
-<video id="video" autoplay muted></video>
 
-<script>
-const context = cast.framework.CastReceiverContext.getInstance();
-const playerManager = context.getPlayerManager();
-const video = document.getElementById("video");
+    <video id="video" class="castMediaElement"></video>
 
-const clearkeys = {
-  "1ae8ccd0e6d74a618c5b2dd9e75a01a5": "3ae8ccd0e6d74a618c5b2dd9e75a01a5"
-};
+    <script>
+        async function init() {
+            // Instancia básica de Cast Context
+            const context = cast.framework.CastReceiverContext.getInstance();
+            const playerManager = context.getPlayerManager();
+            const video = document.getElementById('video');
 
-playerManager.setMessageInterceptor(
-  cast.framework.messages.MessageType.LOAD,
-  async (request) => {
-    if (request.media && request.media.customData) {
-      const url = request.media.contentId;
+            // Inicializar Shaka y el adaptador de Cast
+            // Esto permite que Shaka intercepte las peticiones de carga del Sender
+            const shakaPlayer = new shaka.Player(video);
+            const castReceiver = new shaka.cast.CastReceiver(context, playerManager, shakaPlayer);
 
-      const player = new shaka.Player(video);
-      player.configure({
-        drm: {
-          clearKeys: clearkeys,
+            // Configuración opcional para CC v2 (buffer conservador para poca RAM)
+            shakaPlayer.configure({
+                streaming: {
+                    bufferingGoal: 10,
+                    rebufferingGoal: 2
+                }
+            });
+
+            // Iniciar el Receiver
+            context.start();
+            console.log('Receiver iniciado y esperando...');
         }
-      });
 
-      console.log("Receiver cargando:", url);
-      await player.load(url);
-    }
-
-    return request;
-  }
-);
-
-context.start();
-</script>
+        init();
+    </script>
 </body>
 </html>
