@@ -10,47 +10,27 @@
         /* Fuente principal Inter */
         html { font-family: 'Inter', sans-serif; }
         
-        /* Contenedor principal para permitir posicionamiento absoluto */
-        body {
-            position: relative;
-        }
-
-        /* Estilos específicos para el botón de Cast para asegurar visibilidad */
+        /* Estilos para el Web Component (google-cast-launcher) */
         google-cast-launcher {
-            /* Colores de Icono */
             --google-cast-icon-color: #4f46e5;
             --google-cast-icon-color-hover: #4338ca;
-            /* Aseguramos que el componente tome un tamaño visible */
-            width: 44px;
-            height: 44px;
-            min-width: 44px;
-            min-height: 44px;
             cursor: pointer;
             outline: none;
-            display: block; /* Asegura que se comporta como un bloque */
+            display: block;
+            /* Aseguramos un tamaño mínimo para que el componente interno pueda renderizarse */
+            width: 32px;
+            height: 32px;
         }
 
-        /* Posicionamiento del botón en la esquina superior derecha, común en apps de Cast */
-        #castButtonContainer {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            z-index: 50; /* Asegura que esté por encima de otros elementos */
-            padding: 10px; /* Espacio táctil adecuado en móvil */
-            border-radius: 50%;
-            transition: background-color 0.2s;
+        /* Ocultamos el botón si el SDK no está disponible o no hay dispositivos (manejo por defecto del SDK) */
+        #castButton {
+            /* Dejamos que el SDK controle si lo muestra o no */
+            display: block; 
         }
 
     </style>
 </head>
 <body class="bg-gray-100 min-h-screen flex items-center justify-center p-4">
-    
-    <!-- Contenedor del Botón de Cast (Movido a la esquina superior derecha) -->
-    <div id="castButtonContainer">
-        <google-cast-launcher id="castButton"></google-cast-launcher>
-    </div>
-
-    <!-- Contenedor Principal de la Aplicación -->
     <div class="w-full max-w-lg bg-white shadow-2xl rounded-xl p-8 space-y-6">
 
         <h1 class="text-3xl font-extrabold text-indigo-700 text-center">
@@ -60,10 +40,31 @@
             ID de la Aplicación: <code class="font-mono bg-indigo-100 px-2 py-1 rounded text-indigo-700">7DB61927</code>
         </p>
 
-        <!-- AVISO CRÍTICO DE COMPATIBILIDAD CON CHROME EN ANDROID -->
+        <!-- AVISO CRÍTICO DE COMPATIBILIDAD CON CHROME EN ANDROID (HTTPS) -->
         <div class="p-3 text-xs rounded-lg bg-yellow-100 text-yellow-800 border-l-4 border-yellow-500 font-medium">
             ¡IMPORTANTE! Para asegurar la compatibilidad con Chrome en Android, esta aplicación **DEBE** ser accedida a través de **HTTPS**. Los navegadores móviles bloquean la API de Cast en orígenes inseguros (HTTP).
         </div>
+
+        <!-- Botones de Conexión -->
+        <div class="flex flex-col items-center justify-center space-y-3 pt-4 pb-2">
+            
+            <!-- Opción 1: Web Component oficial (puede fallar en renderizado) -->
+            <div class="flex items-center space-x-2 text-gray-600">
+                <!-- Mostramos el componente oficial, si se renderiza -->
+                <google-cast-launcher id="castButton"></google-cast-launcher>
+                <span class="text-sm">Intenta presionar el icono si aparece.</span>
+            </div>
+
+            <!-- Opción 2: Botón de Reserva (Fallback Button) - Este es el método robusto -->
+            <button onclick="requestCastSession()" id="manualCastButton" 
+                    class="w-full sm:w-auto bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-6 rounded-lg transition duration-150 ease-in-out shadow-md hover:shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50"
+            >
+                <!-- Icono de Cast SVG manual -->
+                <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 11c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm-6 8h12c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2zm12-9.5c0 .28-.22.5-.5.5h-1c-.28 0-.5-.22-.5-.5s.22-.5.5-.5h1c.28 0 .5.22.5.5zM6 16h12v-2H6v2z"/></svg>
+                <span>Conectar con Chromecast (Reserva)</span>
+            </button>
+        </div>
+
 
         <!-- Estado de la Sesión -->
         <div id="statusMessage" class="text-center p-3 rounded-lg text-sm transition-all duration-300 bg-blue-100 text-blue-700 font-medium">
@@ -122,6 +123,7 @@
     <script>
         // --- Variables Globales ---
         let castSession = null;
+        let isCastInitialized = false;
 
         // --- Elementos del DOM ---
         const statusMessage = document.getElementById('statusMessage');
@@ -130,11 +132,10 @@
         const playButton = document.getElementById('playButton');
         const pauseButton = document.getElementById('pauseButton');
         const stopButton = document.getElementById('stopButton');
+        const manualCastButton = document.getElementById('manualCastButton');
 
         /**
          * Actualiza el mensaje de estado en la UI.
-         * @param {string} message - Mensaje a mostrar.
-         * @param {string} type - Tipo de mensaje ('info', 'success', 'error').
          */
         function updateStatus(message, type = 'info') {
             let bgColor, textColor;
@@ -160,7 +161,6 @@
 
         /**
          * Habilita o deshabilita los botones de control de medios.
-         * @param {boolean} isEnabled - true para habilitar, false para deshabilitar.
          */
         function toggleMediaControls(isEnabled) {
             if (isEnabled) {
@@ -168,40 +168,43 @@
                 playButton.disabled = false;
                 pauseButton.disabled = false;
                 stopButton.disabled = false;
+                manualCastButton.disabled = true; // Deshabilita el botón manual cuando ya estás conectado
             } else {
                 mediaControls.classList.add('hidden');
                 playButton.disabled = true;
                 pauseButton.disabled = true;
                 stopButton.disabled = true;
+                manualCastButton.disabled = !isCastInitialized; // Habilita si el SDK está inicializado
                 document.getElementById('currentMediaStatus').innerText = 'Sin medio cargado.';
             }
         }
 
         /**
          * Inicializa el Framework de Cast.
-         * Función de inicio de sesión necesaria para el SDK.
          */
         window['__onGCastApiAvailable'] = function(isAvailable) {
             if (isAvailable) {
+                isCastInitialized = true;
                 initializeCastApi();
-                // Verificamos si estamos en un origen seguro (HTTPS) para la compatibilidad móvil
+                
                 if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
-                    updateStatus('Advertencia: El Cast Button podría no funcionar en Chrome móvil (Android) porque la página NO se sirve vía HTTPS.', 'error');
+                    updateStatus('Advertencia: El Cast Button podría no funcionar en Chrome móvil (Android) porque la página NO se sirve vía HTTPS. Por favor, usa el botón de Reserva.', 'error');
                 } else {
-                    updateStatus('SDK de Cast disponible. Presiona el ícono en la esquina superior derecha para conectar.', 'info');
+                    updateStatus('SDK de Cast disponible. Puedes usar el botón de Reserva para conectar.', 'info');
                 }
+                toggleMediaControls(false); // Asegura que el botón manual esté habilitado
             } else {
                 updateStatus('Error: SDK de Cast no disponible.', 'error');
+                isCastInitialized = false;
+                toggleMediaControls(false);
             }
         };
 
         function initializeCastApi() {
             const context = cast.framework.CastContext.getInstance();
             
-            // Configurar el ID de la aplicación personalizado: 7DB61927
             context.setOptions({
                 receiverApplicationId: '7DB61927',
-                // AutoJoinPolicy.ORIGIN_SCOPED es la configuración recomendada para evitar conflictos.
                 autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
             });
 
@@ -212,8 +215,34 @@
         }
 
         /**
+         * Inicia una sesión de Cast manualmente, forzando la apertura del selector.
+         * Esta es la función de "Botón de Reserva".
+         */
+        function requestCastSession() {
+            if (!isCastInitialized) {
+                updateStatus('El SDK de Cast aún no está listo. Inténtalo de nuevo en breve.', 'error');
+                return;
+            }
+            
+            updateStatus('Intentando iniciar sesión de Cast manualmente...', 'info');
+            
+            cast.framework.CastContext.getInstance().requestSession()
+                .then(
+                    () => console.log('requestSession exitoso'),
+                    (error) => {
+                        // Manejo de errores de inicio de sesión (e.g., el usuario cancela, no hay dispositivos)
+                        if (error.code !== 'cancel') {
+                            updateStatus(`Error al conectar: ${error.code} - ${error.description || 'Consulta la consola para más detalles.'}`, 'error');
+                            console.error('Error requestSession:', error);
+                        } else {
+                            updateStatus('Conexión cancelada por el usuario.', 'info');
+                        }
+                    }
+                );
+        }
+
+        /**
          * Maneja los cambios de estado de la sesión (Conectado, Desconectado, etc.)
-         * @param {cast.framework.CastSessionEvent} event 
          */
         function onSessionStateChanged(event) {
             castSession = cast.framework.CastContext.getInstance().getCurrentSession();
@@ -223,7 +252,6 @@
                 case cast.framework.SessionState.SESSION_RESUMED:
                     updateStatus('Conectado al dispositivo.', 'success');
                     toggleMediaControls(true);
-                    // Escuchar el estado de la reproducción
                     if (castSession.getMediaSession()) {
                         castSession.getMediaSession().addEventListener(
                             chrome.cast.media.MediaSessionEventType.STATUS_CHANGED,
@@ -233,16 +261,13 @@
                     break;
 
                 case cast.framework.SessionState.SESSION_ENDED:
-                    updateStatus('Desconectado. Presiona el ícono para reconectar.', 'info');
+                    updateStatus('Desconectado. Usa el botón de Reserva para reconectar.', 'info');
                     toggleMediaControls(false);
                     castSession = null;
                     break;
 
                 case cast.framework.SessionState.NO_SESSION:
-                    // El mensaje de advertencia de HTTPS se maneja en __onGCastApiAvailable
-                    if (window.location.protocol === 'https:' || window.location.hostname === 'localhost') {
-                         updateStatus('Listo para conectar. Presiona el ícono en la esquina superior derecha.', 'info');
-                    }
+                    updateStatus('Listo para conectar. Usa el botón de Reserva.', 'info');
                     toggleMediaControls(false);
                     castSession = null;
                     break;
@@ -257,7 +282,6 @@
 
         /**
          * Maneja los cambios de estado del medio (Reproduciendo, Pausado, etc.)
-         * @param {chrome.cast.media.MediaSessionStatusEvent} event 
          */
         function onMediaStatusChanged(event) {
             const mediaSession = event.target;
@@ -288,7 +312,6 @@
 
             updateStatus(`Intentando cargar medio: ${mediaUrl}`, 'info');
 
-            // Asumimos MP4 como tipo de medio, lo cual es común para videos de prueba.
             const mediaInfo = new chrome.cast.media.MediaInfo(mediaUrl, 'video/mp4'); 
             mediaInfo.metadata = new chrome.cast.media.GenericMediaMetadata();
             mediaInfo.metadata.title = "Contenido de Prueba (Web Sender)";
@@ -311,7 +334,6 @@
          * Envía un comando de PLAY al medio actual.
          */
         function playMedia() {
-            // Se debe verificar si hay una sesión de medios activa.
             const mediaSession = castSession?.getMediaSession();
             if (mediaSession) {
                 const request = new chrome.cast.media.PlayRequest();
