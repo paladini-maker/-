@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Cast Android API Test</title>
+    <title>Cast Android API Test - FIXED</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="//www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
     
@@ -23,17 +23,32 @@
             border-radius: 8px;
             border: none;
             cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        button:hover:not(:disabled) {
+            opacity: 0.8;
+            transform: scale(1.02);
         }
         .btn-connect { background-color: #ff4081; color: white; }
         .btn-play { background-color: #00e676; color: black; }
         .btn-disabled { background-color: #555; color: #888; pointer-events: none; }
         
-        #status { margin-top: 20px; font-size: 14px; color: #ccc; }
+        #status { 
+            margin-top: 20px; 
+            font-size: 14px; 
+            color: #ccc;
+            min-height: 40px;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .error { color: #ff6b6b; }
+        .success { color: #00e676; }
+        .info { color: #64b5f6; }
     </style>
 </head>
 <body>
 
-    <h3>Control Manual Android</h3>
+    <h3>Control Manual Android - FIXED VERSION</h3>
 
     <button id="btnConnect" class="btn-connect" onclick="openCastMenu()">
         📡 1. Conectar Dispositivo
@@ -47,76 +62,196 @@
 
     <script>
         // --- CONFIG ---
-        const applicationID = 'CC1AD845'; // <--- PON TU ID AQUÍ
+        const applicationID = '86E6AFAF'; // TODO: Replace with your Cast App ID from Google Cast Console
         const streamUrl = 'https://storage.googleapis.com/shaka-demo-assets/angel-one/dash.mpd';
+        const CONNECTION_TIMEOUT = 10000; // 10 seconds
         
         let castContext;
         let currentSession;
+        let connectionTimer;
 
-        // 1. Inicializar
+        // 1. Initialize Cast API
         window['__onGCastApiAvailable'] = function(isAvailable) {
             if (isAvailable) {
                 initializeCastApi();
+            } else {
+                updateStatus("Error: Cast API no disponible", 'error');
             }
         };
 
         function initializeCastApi() {
-            castContext = cast.framework.CastContext.getInstance();
+            try {
+                castContext = cast.framework.CastContext.getInstance();
+                
+                castContext.setOptions({
+                    receiverApplicationId: applicationID,
+                    autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
+                });
+
+                updateStatus("✓ API Lista. Pulsa Conectar.", 'success');
+
+                // ✅ FIXED: Listen to session state changes
+                castContext.addEventListener(
+                    cast.framework.CastContextEventType.SESSION_STATE_CHANGED, 
+                    onSessionStateChange
+                );
+
+                // Optional: Listen to remote session display status
+                castContext.addEventListener(
+                    cast.framework.CastContextEventType.CAST_STATE_CHANGED,
+                    onCastStateChange
+                );
+            } catch (err) {
+                updateStatus("Error inicializando API: " + err.message, 'error');
+            }
+        }
+
+        // ✅ FIXED: Proper session state change handler
+        function onSessionStateChange(event) {
+            console.log('Session state changed:', event.sessionState);
             
-            castContext.setOptions({
-                receiverApplicationId: applicationID,
-                autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
-            });
-
-            document.getElementById('status').innerText = "API Lista. Pulsa Conectar.";
-
-            // Escuchar cambios de conexión para activar/desactivar botones
-            castContext.addEventListener(cast.framework.CastContextEventType.SESSION_STATE_CHANGED, (event) => {
-                switch (event.sessionState) {
-                    case cast.framework.SessionState.SESSION_STARTED:
-                    case cast.framework.SessionState.SESSION_RESUMED:
-                        currentSession = castContext.getCurrentSession();
-                        document.getElementById('status').innerText = "Conectado a: " + currentSession.getCastDevice().friendlyName;
+            switch (event.sessionState) {
+                case cast.framework.SessionState.SESSION_STARTED:
+                case cast.framework.SessionState.SESSION_RESUMED:
+                    currentSession = castContext.getCurrentSession();
+                    if (currentSession) {
+                        const deviceName = currentSession.getCastDevice().friendlyName;
+                        updateStatus(`✓ Conectado a: ${deviceName}`, 'success');
+                        clearTimeout(connectionTimer);
                         togglePlayButton(true);
-                        break;
-                    case cast.framework.SessionState.SESSION_ENDED:
-                        document.getElementById('status').innerText = "Desconectado.";
-                        togglePlayButton(false);
-                        break;
+                    }
+                    break;
+                    
+                case cast.framework.SessionState.SESSION_ENDED:
+                    currentSession = null;
+                    updateStatus("Desconectado.", 'info');
+                    togglePlayButton(false);
+                    break;
+                    
+                case cast.framework.SessionState.SESSION_ENDING:
+                    updateStatus("Desconectando...", 'info');
+                    break;
+                    
+                default:
+                    console.log('Unknown session state:', event.sessionState);
+            }
+        }
+
+        // Optional: Track Cast device availability
+        function onCastStateChange(event) {
+            console.log('Cast state changed:', event.castState);
+            if (event.castState === chrome.cast.SessionRequest.RECEIVER_UNAVAILABLE) {
+                updateStatus("⚠ Ningún dispositivo Cast disponible", 'error');
+            }
+        }
+
+        // ✅ FIXED: Proper callback logic with session and error handlers
+        function openCastMenu() {
+            if (!castContext) {
+                updateStatus("Error: Cast Context no inicializado", 'error');
+                return;
+            }
+
+            updateStatus("Buscando dispositivos...", 'info');
+            
+            // Set timeout for connection attempt
+            connectionTimer = setTimeout(() => {
+                if (!currentSession) {
+                    updateStatus("⏱ Timeout: No se conectó en " + (CONNECTION_TIMEOUT / 1000) + "s", 'error');
                 }
+            }, CONNECTION_TIMEOUT);
+
+            // ✅ FIXED: Correct callback signatures
+            castContext.requestSession().then(
+                function onSessionSuccess(session) {
+                    // ✅ SUCCESS: Session established
+                    console.log('Session started successfully:', session);
+                    currentSession = session;
+                    clearTimeout(connectionTimer);
+                    updateStatus(`✓ Conectado a: ${session.getCastDevice().friendlyName}`, 'success');
+                    togglePlayButton(true);
+                },
+                function onSessionError(error) {
+                    // ✅ ERROR: User cancelled or error occurred
+                    clearTimeout(connectionTimer);
+                    if (error === chrome.cast.SessionRequest.CANCEL) {
+                        updateStatus("ℹ Conexión cancelada por el usuario", 'info');
+                    } else {
+                        console.error('Error al solicitar sesión:', error);
+                        updateStatus(`Error: ${error}`, 'error');
+                    }
+                }
+            ).catch((err) => {
+                // Additional error handling for Promise rejection
+                clearTimeout(connectionTimer);
+                console.error('Promise rejected:', err);
+                updateStatus(`Error de conexión: ${err.message || err}`, 'error');
             });
         }
 
-        // 2. FUNCIÓN CLAVE: Abrir el menú nativo de Android
-        function openCastMenu() {
-            if (!castContext) return;
+        // ✅ FIXED: Enhanced media loading with error handling
+        function loadMedia() {
+            if (!currentSession) {
+                updateStatus("Error: No hay sesión activa", 'error');
+                return;
+            }
 
-            // requestSession() abre la ventana de diálogo del sistema
-            castContext.requestSession().then(
-                function(err) {
-                    console.log('El usuario seleccionó un dispositivo o canceló');
-                },
-                function(err) {
-                    console.error('Error al solicitar sesión:', err);
-                    document.getElementById('status').innerText = "Error: " + err;
+            try {
+                updateStatus("Verificando stream...", 'info');
+
+                // Validate stream URL
+                if (!streamUrl) {
+                    updateStatus("Error: URL de stream vacía", 'error');
+                    return;
                 }
-            );
+
+                // Create media info
+                const mediaInfo = new chrome.cast.media.MediaInfo(streamUrl, 'application/dash+xml');
+                
+                // Add metadata
+                mediaInfo.metadata = new chrome.cast.media.GenericMediaMetadata();
+                mediaInfo.metadata.title = 'Shaka Test API';
+                mediaInfo.metadata.subtitle = 'DASH Stream';
+                mediaInfo.metadata.images = [
+                    new chrome.cast.media.Image('https://via.placeholder.com/226x226?text=Shaka')
+                ];
+
+                const request = new chrome.cast.media.LoadRequest(mediaInfo);
+                request.autoplay = true;
+
+                // ✅ FIXED: Proper error handling for media loading
+                currentSession.loadMedia(request).then(
+                    function onMediaLoadSuccess(media) {
+                        console.log('Media loaded successfully:', media);
+                        updateStatus("✓ Video enviado correctamente", 'success');
+                    },
+                    function onMediaLoadError(errorCode) {
+                        console.error('Media load failed with error:', errorCode);
+                        updateStatus(`Error al enviar video: ${mapErrorCode(errorCode)}`, 'error');
+                    }
+                ).catch((err) => {
+                    console.error('Promise rejected during media load:', err);
+                    updateStatus(`Error inesperado: ${err.message || err}`, 'error');
+                });
+
+            } catch (err) {
+                console.error('Exception during loadMedia:', err);
+                updateStatus(`Excepción: ${err.message}`, 'error');
+            }
         }
 
-        // 3. Cargar el video
-        function loadMedia() {
-            if (!currentSession) return;
-
-            const mediaInfo = new chrome.cast.media.MediaInfo(streamUrl, 'application/dash+xml');
-            mediaInfo.metadata = new chrome.cast.media.GenericMediaMetadata();
-            mediaInfo.metadata.title = 'Shaka Test API';
-
-            const request = new chrome.cast.media.LoadRequest(mediaInfo);
-
-            currentSession.loadMedia(request).then(
-                () => { document.getElementById('status').innerText = "Enviando video..."; },
-                (errorCode) => { document.getElementById('status').innerText = "Error carga: " + errorCode; }
-            );
+        // ✅ NEW: Error code mapper
+        function mapErrorCode(errorCode) {
+            const errorMap = {
+                'INVALID_MEDIA_SESSION_ID': 'ID de sesión inválido',
+                'INVALID_COMMAND': 'Comando inválido',
+                'LOAD_FAILED': 'Falló la carga del contenido',
+                'LOAD_CANCELLED': 'Carga cancelada',
+                'NOT_SUPPORTED': 'No soportado',
+                'SESSION_ERROR': 'Error de sesión',
+                'PERMISSION_DENIED': 'Permiso denegado'
+            };
+            return errorMap[errorCode] || `Error desconocido: ${errorCode}`;
         }
 
         function togglePlayButton(enable) {
@@ -129,6 +264,14 @@
                 btn.classList.add('btn-disabled');
                 connectBtn.innerText = "📡 1. Conectar Dispositivo";
             }
+        }
+
+        // ✅ NEW: Utility function for status updates
+        function updateStatus(message, type = 'info') {
+            const statusDiv = document.getElementById('status');
+            statusDiv.innerText = message;
+            statusDiv.className = type;
+            console.log(`[${type.toUpperCase()}] ${message}`);
         }
     </script>
 </body>
