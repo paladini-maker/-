@@ -1,58 +1,134 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Cast Sender Test</title>
+    <title>Cast Android API Test</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="//www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
+    
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            padding: 20px;
+            text-align: center;
+            background-color: #222;
+            color: white;
+        }
+        button {
+            display: block;
+            width: 100%;
+            max-width: 300px;
+            margin: 20px auto;
+            padding: 15px;
+            font-size: 18px;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+        }
+        .btn-connect { background-color: #ff4081; color: white; }
+        .btn-play { background-color: #00e676; color: black; }
+        .btn-disabled { background-color: #555; color: #888; pointer-events: none; }
+        
+        #status { margin-top: 20px; font-size: 14px; color: #ccc; }
+    </style>
 </head>
 <body>
 
-    <h2>Prueba Minimalista Sender</h2>
-    
-    <google-cast-launcher></google-cast-launcher>
-    
-    <br><br>
-    <button onclick="loadMedia()">Cargar Video (DASH)</button>
+    <h3>Control Manual Android</h3>
+
+    <button id="btnConnect" class="btn-connect" onclick="openCastMenu()">
+        📡 1. Conectar Dispositivo
+    </button>
+
+    <button id="btnPlay" class="btn-play btn-disabled" onclick="loadMedia()">
+        ▶ 2. Reproducir Video
+    </button>
+
+    <div id="status">Esperando API...</div>
 
     <script>
-        // --- CONFIGURACIÓN ---
-        // REEMPLAZA ESTO CON TU ID DE LA CONSOLA DE CAST
-        const applicationID = '86E6AFAF'; 
-        
-        // Video de prueba (Angel One - DASH)
+        // --- CONFIG ---
+        const applicationID = '86E6AFAF'; // <--- PON TU ID AQUÍ
         const streamUrl = 'https://storage.googleapis.com/shaka-demo-assets/angel-one/dash.mpd';
-        const streamType = 'application/dash+xml';
+        
+        let castContext;
+        let currentSession;
 
-        // 1. Inicialización
+        // 1. Inicializar
         window['__onGCastApiAvailable'] = function(isAvailable) {
             if (isAvailable) {
-                cast.framework.CastContext.getInstance().setOptions({
-                    receiverApplicationId: applicationID,
-                    autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
-                });
+                initializeCastApi();
             }
         };
 
-        // 2. Función para enviar el video
-        function loadMedia() {
-            const castSession = cast.framework.CastContext.getInstance().getCurrentSession();
+        function initializeCastApi() {
+            castContext = cast.framework.CastContext.getInstance();
             
-            if (!castSession) {
-                alert('Primero conéctate al Chromecast usando el icono.');
-                return;
-            }
+            castContext.setOptions({
+                receiverApplicationId: applicationID,
+                autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
+            });
 
-            const mediaInfo = new chrome.cast.media.MediaInfo(streamUrl, streamType);
-            // Metadata opcional para que se vea bonito en pantalla
+            document.getElementById('status').innerText = "API Lista. Pulsa Conectar.";
+
+            // Escuchar cambios de conexión para activar/desactivar botones
+            castContext.addEventListener(cast.framework.CastContextEventType.SESSION_STATE_CHANGED, (event) => {
+                switch (event.sessionState) {
+                    case cast.framework.SessionState.SESSION_STARTED:
+                    case cast.framework.SessionState.SESSION_RESUMED:
+                        currentSession = castContext.getCurrentSession();
+                        document.getElementById('status').innerText = "Conectado a: " + currentSession.getCastDevice().friendlyName;
+                        togglePlayButton(true);
+                        break;
+                    case cast.framework.SessionState.SESSION_ENDED:
+                        document.getElementById('status').innerText = "Desconectado.";
+                        togglePlayButton(false);
+                        break;
+                }
+            });
+        }
+
+        // 2. FUNCIÓN CLAVE: Abrir el menú nativo de Android
+        function openCastMenu() {
+            if (!castContext) return;
+
+            // requestSession() abre la ventana de diálogo del sistema
+            castContext.requestSession().then(
+                function(err) {
+                    console.log('El usuario seleccionó un dispositivo o canceló');
+                },
+                function(err) {
+                    console.error('Error al solicitar sesión:', err);
+                    document.getElementById('status').innerText = "Error: " + err;
+                }
+            );
+        }
+
+        // 3. Cargar el video
+        function loadMedia() {
+            if (!currentSession) return;
+
+            const mediaInfo = new chrome.cast.media.MediaInfo(streamUrl, 'application/dash+xml');
             mediaInfo.metadata = new chrome.cast.media.GenericMediaMetadata();
-            mediaInfo.metadata.title = 'Shaka Test Video';
-            mediaInfo.metadata.subtitle = 'Minimalist Test';
+            mediaInfo.metadata.title = 'Shaka Test API';
 
             const request = new chrome.cast.media.LoadRequest(mediaInfo);
 
-            castSession.loadMedia(request).then(
-                function() { console.log('Carga exitosa'); },
-                function(errorCode) { console.error('Error al cargar:', errorCode); }
+            currentSession.loadMedia(request).then(
+                () => { document.getElementById('status').innerText = "Enviando video..."; },
+                (errorCode) => { document.getElementById('status').innerText = "Error carga: " + errorCode; }
             );
+        }
+
+        function togglePlayButton(enable) {
+            const btn = document.getElementById('btnPlay');
+            const connectBtn = document.getElementById('btnConnect');
+            if (enable) {
+                btn.classList.remove('btn-disabled');
+                connectBtn.innerText = "✅ Conectado";
+            } else {
+                btn.classList.add('btn-disabled');
+                connectBtn.innerText = "📡 1. Conectar Dispositivo";
+            }
         }
     </script>
 </body>
