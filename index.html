@@ -1,24 +1,33 @@
 <!DOCTYPE html>
-<html>
+<html lang="es">
   <head>
-    <!-- Shaka Player UI compiled library: -->
+    <meta charset="UTF-8" />
+    <title>Shaka Player + Cast</title>
+
+    <!-- Shaka Player UI -->
     <script src="dist/shaka-player.ui.js"></script>
-    <!-- Shaka Player UI compiled library default CSS: -->
-    <link rel="stylesheet" type="text/css" href="dist/controls.css">
-    <!-- Chromecast SDK (if you want Chromecast support for your app): -->
+    <link rel="stylesheet" href="dist/controls.css">
+
+    <!-- Google Cast Sender -->
     <script defer src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js"></script>
-    <!-- Your application source: -->
-    <script src="myapp.js"></script>
+
+    <!-- Tu app -->
+    <script defer src="myapp.js"></script>
+
+    <style>
+      body { margin: 0; background:#111; display:flex; justify-content:center; padding:20px; }
+      #player-container { width:100%; max-width:40em; }
+      video { width:100%; height:100%; background:black; }
+    </style>
   </head>
+
   <body>
-    <!-- The data-shaka-player-container tag will make the UI library place the controls in this div.
-         The data-shaka-player-cast-receiver-id tag allows you to provide a Cast Application ID that
-           the cast button will cast to; the value provided here is the sample cast receiver. -->
-    <div data-shaka-player-container style="max-width:40em"
+    <div id="player-container"
+         data-shaka-player-container
          data-shaka-player-cast-receiver-id="07AEE832">
-       <!-- The data-shaka-player tag will make the UI library use this video element.
-            If no video is provided, the UI will automatically make one inside the container div. -->
-      <video autoplay data-shaka-player id="video" style="width:100%;height:100%"></video>
+
+      <video id="video" autoplay data-shaka-player></video>
+
     </div>
   </body>
 </html>
