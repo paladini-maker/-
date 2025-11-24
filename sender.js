@@ -9,7 +9,7 @@ const CLEARKEY_MAP = {
 };
 
 // Receiver app id (dejar igual al data-attr en index.html)
-const RECEIVER_APP_ID = '7DB61927';
+const RECEIVER_APP_ID = 'B2FD5F03';
 // --------------------------------------
 
 function $id(id){ return document.getElementById(id); }
