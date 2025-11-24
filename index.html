@@ -21,7 +21,7 @@
         try {
           const context = cast.framework.CastContext.getInstance();
           context.setOptions({
-            receiverApplicationId: 'REPLACE_WITH_YOUR_APP_ID', // <- reemplazá
+            receiverApplicationId: 'B2FD5F03', // <- reemplazá
             autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
           });
         } catch (e) {
@@ -46,7 +46,7 @@
   </style>
 </head>
 <body>
-  <div id="player-wrap" data-shaka-player-container data-shaka-player-cast-receiver-id="7DB61927" data-shaka-player-cast-android-receiver-compatible="true">
+  <div id="player-wrap" data-shaka-player-container data-shaka-player-cast-receiver-id="B2FD5F03" data-shaka-player-cast-android-receiver-compatible="true">
     <video id="video" autoplay playsinline data-shaka-player></video>
     <div id="log">Inicializando...</div>
     <div class="hint">Reemplaza <code>REPLACE_WITH_YOUR_APP_ID</code> por tu App ID. HTTPS requerido para Cast.</div>
