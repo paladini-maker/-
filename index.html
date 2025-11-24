@@ -1,33 +1,55 @@
 <!DOCTYPE html>
 <html lang="es">
-  <head>
-    <meta charset="UTF-8" />
-    <title>Shaka Player + Cast</title>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Shaka Player + Cast — Sender</title>
 
-    <!-- Shaka Player UI -->
-    <script src="dist/shaka-player.ui.js"></script>
-    <link rel="stylesheet" href="dist/controls.css">
+  <!-- Shaka Player (compiled + UI) desde CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.15.12/shaka-player.compiled.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.15.12/shaka-player.ui.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.15.12/controls.css" />
 
-    <!-- Google Cast Sender -->
-    <script defer src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js"></script>
+  <!-- Google Cast Sender (moderno) -->
+  <script>
+    // Define la función que Google Cast invoca para avisar disponibilidad.
+    // Debe existir antes de cargar el script del SDK si querés control temprano.
+    window.__onGCastApiAvailable = function(isAvailable) {
+      if (isAvailable) {
+        console.log('Cast API available — inicializando CastContext');
+        // Configuración inicial que luego vamos a ajustar en app JS si hace falta.
+        try {
+          const context = cast.framework.CastContext.getInstance();
+          context.setOptions({
+            receiverApplicationId: 'REPLACE_WITH_YOUR_APP_ID', // <- reemplazá
+            autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
+          });
+        } catch (e) {
+          console.warn('No se pudo setear CastContext (todavía).', e);
+        }
+      } else {
+        console.warn('Cast API no disponible');
+      }
+    };
+  </script>
+  <script defer src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
 
-    <!-- Tu app -->
-    <script defer src="myapp.js"></script>
+  <!-- App JS -->
+  <script defer src="sender.js"></script>
 
-    <style>
-      body { margin: 0; background:#111; display:flex; justify-content:center; padding:20px; }
-      #player-container { width:100%; max-width:40em; }
-      video { width:100%; height:100%; background:black; }
-    </style>
-  </head>
-
-  <body>
-    <div id="player-container"
-         data-shaka-player-container
-         data-shaka-player-cast-receiver-id="CC1AD845">
-
-      <video id="video" autoplay data-shaka-player></video>
-
-    </div>
-  </body>
+  <style>
+    body { margin:0; background:#0f1720; color:#e6eef3; font-family:system-ui, sans-serif; display:flex; gap:20px; padding:20px; }
+    #player-wrap { width:100%; max-width:760px; margin:auto; }
+    video { width:100%; height:100%; background:black; display:block; }
+    #log { font-size:13px; color:#9fb3c8; margin-top:8px; }
+    .hint { font-size:12px; color:#7f9fb0; margin-top:6px; }
+  </style>
+</head>
+<body>
+  <div id="player-wrap" data-shaka-player-container data-shaka-player-cast-receiver-id="7DB61927" data-shaka-player-cast-android-receiver-compatible="true">
+    <video id="video" autoplay playsinline data-shaka-player></video>
+    <div id="log">Inicializando...</div>
+    <div class="hint">Reemplaza <code>REPLACE_WITH_YOUR_APP_ID</code> por tu App ID. HTTPS requerido para Cast.</div>
+  </div>
+</body>
 </html>
