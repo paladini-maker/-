@@ -3,173 +3,121 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Web Sender para Google Cast (Beta)</title>
-  <script src="https://www.gstatic.com/cast/sdk/libs/sender/1.0/cast_framework.js"></script>
+  <title>Web Sender CAF — Cast</title>
+  <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
   <style>
-    :root{--bg:#f4f4f9;--card:#fff;--muted:#6b7280;--accent:#007bff}
-    html,body{height:100%;margin:0}
-    body{font-family:Inter,Segoe UI,Arial,sans-serif;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:18px}
-    .card{width:100%;max-width:720px;padding:18px;border-radius:10px;background:var(--card);box-shadow:0 6px 18px rgba(16,24,40,0.06);text-align:center}
-    h1{margin:0 0 12px;font-size:1.25rem;color:#111827}
-    #controls{margin-top:14px;display:flex;flex-direction:column;gap:12px;align-items:center}
+    :root{--accent:#2979ff;--bg:#f7f8fb;--card:#fff}
+    html,body{height:100%;margin:0;background:var(--bg);font-family:Inter,Arial,Helvetica,sans-serif}
+    .wrap{max-width:760px;margin:36px auto;padding:18px;background:var(--card);border-radius:12px;box-shadow:0 6px 20px rgba(0,0,0,0.05);text-align:center}
+    h2{margin:0 0 12px;font-size:1.25rem;color:#0f172a}
+    .controls{display:flex;gap:12px;justify-content:center;align-items:center;flex-wrap:wrap}
     google-cast-button{--google-cast-button-width:36px;--google-cast-button-height:36px}
-    button{appearance:none;border:0;border-radius:8px;padding:10px 16px;font-size:1rem;background:var(--accent);color:#fff;cursor:pointer}
+    button{background:var(--accent);color:#fff;border:0;padding:10px 16px;border-radius:8px;cursor:pointer;font-size:1rem}
     button:disabled{background:#cfcfcf;cursor:not-allowed}
-    #status{margin-top:8px;padding:10px;border-radius:8px;background:#f0f2f5;color:var(--muted);font-weight:600}
-    .meta{font-size:.9rem;color:var(--muted)}
+    #status{margin-top:14px;padding:10px;border-radius:8px;background:#f1f5f9;color:#374151;font-weight:600}
   </style>
 </head>
 <body>
-  <div class="card">
-    <h1>Web Sender: Envío de Video de Muestra</h1>
-    <div id="controls">
-      <div style="display:flex;gap:12px;align-items:center;justify-content:center;flex-wrap:wrap">
-        <google-cast-button aria-label="Cast"></google-cast-button>
-        <button id="castButton" disabled>Cargar y reproducir</button>
-      </div>
-      <div id="status" class="meta">Inicializando...</div>
-      <div class="meta">Seleccioná un dispositivo con el botón de Cast y luego presioná "Cargar y reproducir".</div>
+  <div class="wrap">
+    <h2>Sender CAF</h2>
+    <div class="controls">
+      <google-cast-button aria-label="Cast"></google-cast-button>
+      <button id="loadBtn" disabled>Cargar y reproducir</button>
     </div>
+    <div id="status">Inicializando...</div>
   </div>
 
   <script>
-    (function () {
-      const APPLICATION_ID = 'CC1AD845';
+    (function(){
+      const APP_ID = 'CC1AD845';
       const MEDIA_URL = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
-      const MEDIA_TITLE = 'Big Buck Bunny (Muestra)';
-      const MEDIA_SUBTITLE = 'Video de prueba para Cast';
 
-      let castContext = null;
-      let initialized = false;
-      let clickBound = false;
-
-      const castButton = document.getElementById('castButton');
       const statusEl = document.getElementById('status');
+      const loadBtn = document.getElementById('loadBtn');
 
-      function setStatus(text, color) {
-        if (!statusEl) return;
+      function setStatus(text, color){
         statusEl.textContent = text;
         statusEl.style.color = color || '';
       }
 
-      function log() {
-        if (window.console && console.log) console.log.apply(console, ['[Cast Sender]'].concat(Array.from(arguments)));
+      async function ensureInit(){
+        if(window.cast && window.cast.framework && cast.framework.CastContext) return;
+        return new Promise((resolve)=>{
+          const timeout = setTimeout(()=>resolve(), 1500);
+          window.__onGCastApiAvailable = function(isAvailable){
+            clearTimeout(timeout);
+            resolve();
+          };
+        });
       }
 
-      window.__onGCastApiAvailable = function (isAvailable) {
-        if (isAvailable) {
-          setStatus('API Cast disponible.', 'green');
-          initCast();
-        } else {
-          setStatus('API Cast no disponible.', 'crimson');
-          setTimeout(initCast, 1000);
-        }
-      };
+      async function init(){
+        await ensureInit();
+        try{
+          if(!window.cast || !window.cast.framework) throw new Error('Cast framework no disponible');
+          const context = cast.framework.CastContext.getInstance();
+          context.setOptions({ receiverApplicationId: APP_ID });
 
-      function initCast() {
-        if (initialized) return;
-        try {
-          if (!window.cast || !window.cast.framework) throw new Error('Cast SDK no cargado');
+          context.addEventListener(cast.framework.CastContextEventType.SESSION_STATE_CHANGED, (e)=>{
+            const s = e && e.sessionState;
+            if(s === cast.framework.SessionState.SESSION_STARTED) setStatus('Sesión iniciada', 'green');
+            else if(s === cast.framework.SessionState.SESSION_RESUMED) setStatus('Sesión reanudada', 'green');
+            else if(s === cast.framework.SessionState.SESSION_ENDED) setStatus('Sesión finalizada', 'grey');
+          });
 
-          castContext = window.cast.framework.CastContext.getInstance();
-          castContext.setOptions({ receiverApplicationId: APPLICATION_ID });
-          castContext.addEventListener(cast.framework.CastContextEventType.SESSION_STATE_CHANGED, onSessionChange);
+          loadBtn.disabled = false;
+          loadBtn.addEventListener('click', ()=>onLoadClick(context));
 
-          if (castButton) {
-            castButton.disabled = false;
-            if (!clickBound) {
-              castButton.addEventListener('click', onCastClick);
-              clickBound = true;
-            }
-          }
-
-          initialized = true;
-          setStatus('Listo. Seleccioná dispositivo y presioná Cargar.');
-          log('Cast inicializado');
-        } catch (err) {
-          setStatus('Error al inicializar Cast.', 'crimson');
-          if (castButton) castButton.disabled = true;
-          log('init error', err && err.message ? err.message : err);
+          setStatus('Listo', 'green');
+        }catch(err){
+          setStatus('Error inicializando SDK de Cast', 'crimson');
+          loadBtn.disabled = true;
         }
       }
 
-      function onSessionChange(event) {
-        const state = event && event.sessionState;
-        if (state === cast.framework.SessionState.SESSION_STARTED) setStatus('Sesión iniciada.', 'purple');
-        else if (state === cast.framework.SessionState.SESSION_RESUMED) setStatus('Sesión reanudada.', 'purple');
-        else if (state === cast.framework.SessionState.SESSION_ENDED) setStatus('Sesión terminada.', 'grey');
-      }
-
-      async function onCastClick() {
-        if (!castContext) return setStatus('Cast no inicializado.', 'crimson');
-
-        try {
-          const session = typeof castContext.getCurrentSession === 'function' ? castContext.getCurrentSession() : null;
-          if (session && typeof session.isConnected === 'function' && session.isConnected()) {
-            await sendToSession(session);
-            return;
-          }
-
-          setStatus('Solicitando sesión...', 'orange');
-          const newSession = await castContext.requestSession();
-          if (newSession && typeof newSession.isConnected === 'function' && newSession.isConnected()) {
-            await sendToSession(newSession);
-          } else {
-            setStatus('No se pudo iniciar la sesión.', 'crimson');
-          }
-        } catch (e) {
-          setStatus('Error solicitando sesión.', 'crimson');
-          log('requestSession error', e && e.message ? e.message : e);
+      async function requestSession(context){
+        try{
+          const session = await context.requestSession();
+          return session;
+        }catch(e){
+          return null;
         }
       }
 
-      function buildRequest() {
-        if (!window.chrome || !chrome.cast || !chrome.cast.media) throw new Error('API media no disponible');
+      function buildLoadRequest(){
+        const mediaInfo = new chrome.cast.media.MediaInfo(MEDIA_URL, 'video/mp4');
+        mediaInfo.streamType = chrome.cast.media.StreamType.BUFFERED;
         const metadata = new chrome.cast.media.MediaMetadata(chrome.cast.media.MetadataType.MOVIE);
-        metadata.title = MEDIA_TITLE;
-        metadata.subtitle = MEDIA_SUBTITLE;
-
-        const info = new chrome.cast.media.MediaInfo(MEDIA_URL, 'video/mp4');
-        info.streamType = chrome.cast.media.StreamType.BUFFERED;
-        info.metadata = metadata;
-
-        const req = new chrome.cast.media.LoadRequest(info);
-        req.autoplay = true;
-        req.playPosition = 0;
-        return req;
+        metadata.title = 'Big Buck Bunny';
+        mediaInfo.metadata = metadata;
+        const request = new chrome.cast.media.LoadRequest(mediaInfo);
+        request.autoplay = true;
+        request.playPosition = 0;
+        return request;
       }
 
-      async function sendToSession(session) {
-        if (!session || typeof session.isConnected !== 'function' || !session.isConnected()) {
-          setStatus('No hay sesión activa.', 'crimson');
-          return;
+      async function onLoadClick(context){
+        setStatus('Preparando...', 'orange');
+        let session = context.getCurrentSession && context.getCurrentSession();
+        if(!session){
+          setStatus('Solicitando sesión...', 'orange');
+          session = await requestSession(context);
         }
+        if(!session){ setStatus('No se pudo establecer sesión', 'crimson'); return; }
 
-        setStatus('Enviando media...', 'blue');
+        let request;
+        try{ request = buildLoadRequest(); }catch(e){ setStatus('Error preparando request', 'crimson'); return; }
 
-        let req;
-        try {
-          req = buildRequest();
-        } catch (err) {
-          setStatus('Error preparando media.', 'crimson');
-          log('buildRequest error', err && err.message ? err.message : err);
-          return;
-        }
-
-        try {
-          await session.loadMedia(req);
-          setStatus('Reproduciendo en dispositivo.', 'green');
-        } catch (err) {
-          setStatus('Error cargando media.', 'crimson');
-          log('loadMedia error', err && err.message ? err.message : err);
+        try{
+          await session.loadMedia(request);
+          setStatus('Reproduciendo en el dispositivo', 'green');
+        }catch(e){
+          setStatus('Error al cargar el media', 'crimson');
         }
       }
 
-      document.addEventListener('DOMContentLoaded', function () {
-        if (window.__onGCastApiAvailable === undefined) setTimeout(initCast, 300);
-      });
-
-      if (window.cast && window.cast.framework) initCast();
+      document.addEventListener('DOMContentLoaded', init);
+      if(window.cast && window.cast.framework) init();
     })();
   </script>
 </body>
