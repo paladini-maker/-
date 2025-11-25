@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Web Sender para Google Cast</title>
+    <title>Web Sender para Google Cast (Beta)</title>
     
     <script src="https://www.gstatic.com/cast/sdk/libs/sender/1.0/cast_framework.js"></script>
 
@@ -10,21 +10,21 @@
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             text-align: center;
-            padding: 50px;
+            padding: 20px; /* Reducido para móvil */
             background-color: #f4f4f9;
         }
         h1 {
             color: #333;
+            font-size: 1.5em; /* Ajuste para móvil */
         }
         #controls {
-            margin-top: 30px;
-            padding: 20px;
+            margin-top: 20px;
+            padding: 15px;
             border: 1px solid #ddd;
             border-radius: 8px;
             display: inline-block;
             background-color: #fff;
         }
-        /* Estilo para el botón de Cast por defecto (gestionado por el SDK) */
         google-cast-button {
             --google-cast-button-color: #4285F4;
             --google-cast-button-width: 32px;
@@ -43,6 +43,13 @@
             background-color: #ccc;
             cursor: not-allowed;
         }
+        #status {
+            margin-top: 15px;
+            font-weight: bold;
+            padding: 10px;
+            border-radius: 5px;
+            background-color: #eee;
+        }
     </style>
 </head>
 <body>
@@ -50,127 +57,144 @@
 
     <google-cast-button></google-cast-button>
 
+    <p id="status" style="color: grey;">Cargando API de Cast...</p>
+
     <div id="controls">
         <button id="castButton" disabled>
             Cargar y Reproducir Video (Big Buck Bunny)
         </button>
-        <p>Haga clic en el botón de Cast (arriba) y luego en el botón de Cargar.</p>
+        <p>Haga clic en el botón de Cast (si aparece) y luego en el botón de Cargar.</p>
     </div>
 
     <script>
-        // ID de la aplicación de Receptor de Medios Predeterminada (Default Media Receiver).
-        // Si tienes una aplicación de receptor personalizada, debes usar su ID aquí.
+        // ID de la aplicación de Receptor de Medios Predeterminada
         const APPLICATION_ID = 'CC1AD845'; 
         
-        // URL y metadatos del contenido multimedia de muestra
+        // Contenido multimedia de muestra
         const MEDIA_URL = 'http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
         const MEDIA_TITLE = 'Big Buck Bunny (Muestra)';
         const MEDIA_SUBTITLE = 'Video de prueba para Cast';
         
         let castContext;
-        
+        const castButton = document.getElementById('castButton');
+        const statusElement = document.getElementById('status');
+
         /**
-         * 3. Callback obligatorio para inicializar el SDK
-         * Se ejecuta automáticamente cuando el script del SDK termina de cargarse.
+         * 1. Callback obligatorio y robusto para inicializar el SDK
          */
         window['__onGCastApiAvailable'] = function(isAvailable) {
             if (isAvailable) {
-                initializeCastApi();
+                statusElement.style.color = 'green';
+                statusElement.innerText = 'API de Google Cast: DISPONIBLE.';
+                setTimeout(initializeCastApi, 100); 
             } else {
-                console.error('La API de Google Cast no está disponible.');
+                statusElement.style.color = 'red';
+                statusElement.innerText = 'API de Cast NO DISPONIBLE. Causa probable: No se detecta Chromecast en tu red.';
+                castButton.disabled = true;
+                // Intentaremos forzar la inicialización si la API existe, por si acaso
+                setTimeout(initializeCastApi, 2000); 
             }
         };
 
         /**
-         * Inicializa el contexto de Cast y configura las opciones.
+         * 2. Inicializa el contexto de Cast.
          */
         function initializeCastApi() {
-            // Configuración de las opciones de Cast
-            const castOptions = new cast.framework.CastOptions();
-            castOptions.receiverApplicationId = APPLICATION_ID;
-            
-            // Inicializar el contexto de Cast
-            castContext = cast.framework.CastContext.getInstance();
-            castContext.setOptions(castOptions);
+            try {
+                // 2.1. Configuración de las opciones de Cast
+                const castOptions = new cast.framework.CastOptions();
+                castOptions.receiverApplicationId = APPLICATION_ID;
+                
+                // 2.2. Inicializar el contexto de Cast (singleton)
+                castContext = cast.framework.CastContext.getInstance();
+                castContext.setOptions(castOptions);
 
-            // Agregar listener para cambios de estado de sesión. 
-            // Esto permite saber cuándo el usuario se conecta a un dispositivo.
-            castContext.addEventListener(
-                cast.framework.CastContextEventType.SESSION_STATE_CHANGED,
-                onSessionStateChange
-            );
-            
-            // Habilitar el botón de carga de medio
-            document.getElementById('castButton').disabled = false;
-            document.getElementById('castButton').onclick = requestSessionAndLoadMedia;
+                // 2.3. Configurar listeners
+                castContext.addEventListener(
+                    cast.framework.CastContextEventType.SESSION_STATE_CHANGED,
+                    onSessionStateChange
+                );
+                
+                // 2.4. Habilitar el botón y actualizar estado
+                castButton.disabled = false;
+                castButton.onclick = requestSessionAndLoadMedia;
 
-            console.log('Contexto de Cast inicializado. Aplicación ID:', APPLICATION_ID);
+                // Solo actualizamos el estado si no falló en la etapa anterior (isAvailable=false)
+                if (statusElement.style.color !== 'red') {
+                    statusElement.style.color = 'blue';
+                    statusElement.innerText = 'Cast Context CONFIGURADO. Presiona el botón de Cast (si aparece) o el botón de Cargar.';
+                }
+
+            } catch (e) {
+                statusElement.style.color = 'red';
+                statusElement.innerText = 'ERROR FATAL al configurar el Cast Context: La API no se cargó correctamente.';
+                castButton.disabled = true;
+            }
         }
-
+        
         /**
-         * Maneja los cambios de estado de la sesión.
+         * 3. Maneja los cambios de estado de la sesión.
          */
         function onSessionStateChange(event) {
-            const session = castContext.getCurrentSession();
-            console.log('Estado de la sesión:', event.sessionState);
-
             if (event.sessionState === cast.framework.SessionState.SESSION_STARTED) {
-                console.log('Sesión iniciada con éxito. Listo para cargar medio.');
+                 statusElement.style.color = 'purple';
+                 statusElement.innerText = 'SESIÓN INICIADA. Ahora puedes presionar el botón de Cargar.';
+            } else if (event.sessionState === cast.framework.SessionState.SESSION_ENDED) {
+                 statusElement.style.color = 'grey';
+                 statusElement.innerText = 'SESIÓN TERMINADA. Vuelve a conectar.';
             }
         }
 
         /**
-         * Solicita una sesión de Cast o carga el medio si ya hay una sesión.
+         * 4. Solicita una sesión de Cast o carga el medio si ya hay una sesión.
          */
         function requestSessionAndLoadMedia() {
             const session = castContext.getCurrentSession();
             
             if (session && session.isConnected()) {
-                // Si ya hay una sesión conectada, cargamos el medio directamente.
                 loadMedia(session);
             } else {
-                // Solicitamos una sesión, lo que activará el diálogo de Cast.
-                castContext.requestSession().then(function() {
-                    // Si la sesión se inicia, el medio se cargará a través de onSessionStateChange
-                    // o podemos llamarlo aquí si requestSession fue exitoso.
-                    loadMedia(castContext.getCurrentSession());
+                statusElement.style.color = 'orange';
+                statusElement.innerText = 'Solicitando sesión de Cast...';
+                castContext.requestSession().then(function(newSession) {
+                    loadMedia(newSession);
                 }, function(error) {
-                    console.error('Error al solicitar la sesión:', error);
-                    alert('Error al intentar conectar: ' + error.code);
+                    statusElement.style.color = 'red';
+                    statusElement.innerText = 'ERROR al solicitar sesión. Código: ' + (error ? error.code : 'Desconocido');
                 });
             }
         }
 
         /**
-         * Crea la solicitud de carga y la envía a la sesión de Cast activa.
+         * 5. Crea la solicitud de carga y la envía a la sesión de Cast activa.
          */
         function loadMedia(session) {
-            if (!session) {
-                console.error("Error: No hay una sesión de Cast activa.");
+            if (!session || !session.isConnected()) {
+                statusElement.style.color = 'red';
+                statusElement.innerText = "ERROR: No hay una sesión de Cast activa para cargar el medio.";
                 return;
             }
+            
+            statusElement.style.color = 'blue';
+            statusElement.innerText = 'Creando y enviando solicitud de carga de medio...';
 
-            console.log('Creando solicitud de carga de medio...');
-            
-            // 4. Crear MediaInfo con la URL y tipo de contenido
-            const mediaInfo = new chrome.cast.media.MediaInfo(MEDIA_URL, 'video/mp4');
-            
-            // 5. Crear Metadatos
             const mediaMetadata = new chrome.cast.media.MediaMetadata(chrome.cast.media.MetadataType.MOVIE);
             mediaMetadata.title = MEDIA_TITLE;
             mediaMetadata.subtitle = MEDIA_SUBTITLE;
+
+            const mediaInfo = new chrome.cast.media.MediaInfo(MEDIA_URL, 'video/mp4');
             mediaInfo.metadata = mediaMetadata;
 
-            // 6. Crear la solicitud de carga final
             const loadRequest = new chrome.cast.media.LoadRequest(mediaInfo);
 
-            // 7. Enviar la solicitud a la sesión de Cast activa
             session.loadMedia(loadRequest).then(
                 function() { 
-                    console.log('Medio cargado y reproduciéndose exitosamente.');
+                    statusElement.style.color = 'green';
+                    statusElement.innerText = '¡Medio cargado y reproduciéndose exitosamente!';
                 }, 
-                function(errorCode) { 
-                    console.error('Error al cargar el medio:', errorCode); 
+                function(error) { 
+                    statusElement.style.color = 'red';
+                    statusElement.innerText = 'ERROR al cargar el video. Código: ' + (error ? error.code : 'Desconocido');
                 }
             );
         }
