@@ -1,138 +1,136 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Sender CAF IPTV</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Sender CAF — IPTV+</title>
 
-<script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
+  <!-- Google Cast Sender SDK -->
+  <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
 
-<style>
-:root{--accent:#2979ff;--bg:#f7f8fb;--card:#fff}
-html,body{height:100%;margin:0;background:var(--bg);font-family:Inter,Arial,sans-serif}
-.wrap{max-width:760px;margin:36px auto;padding:18px;background:var(--card);border-radius:12px;box-shadow:0 6px 20px rgba(0,0,0,0.05);text-align:center}
-h2{margin:0 0 12px;font-size:1.25rem;color:#0f172a}
-.controls{display:flex;gap:12px;justify-content:center;align-items:center;flex-wrap:wrap}
-google-cast-button{--google-cast-button-width:36px;--google-cast-button-height:36px}
-button{background:var(--accent);color:#fff;border:0;padding:10px 16px;border-radius:8px;cursor:pointer;font-size:1rem}
-button:disabled{background:#cfcfcf;cursor:not-allowed}
-#status{margin-top:14px;padding:10px;border-radius:8px;background:#f1f5f9;color:#374151;font-weight:600}
-</style>
+  <style>
+    :root{--accent:#2979ff;--bg:#f7f8fb;--card:#fff}
+    body{margin:0;background:var(--bg);font-family:Inter,Arial,sans-serif}
+    .wrap{max-width:760px;margin:40px auto;padding:20px;background:var(--card);border-radius:12px;box-shadow:0 6px 20px rgba(0,0,0,0.05);text-align:center}
+    h2{margin-bottom:12px;color:#0f172a}
+    .controls{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-bottom:16px}
+    google-cast-button{--google-cast-button-width:36px;--google-cast-button-height:36px}
+    button{background:var(--accent);color:#fff;border:0;padding:10px 16px;border-radius:8px;cursor:pointer;font-size:1rem}
+    button:disabled{background:#cfcfcf;cursor:not-allowed}
+    #status{margin-top:14px;padding:10px;border-radius:8px;background:#f1f5f9;color:#374151;font-weight:600}
+    input{padding:8px 12px;font-size:1rem;border-radius:8px;border:1px solid #cbd5e1;width:100%;max-width:480px}
+  </style>
 </head>
 <body>
+
 <div class="wrap">
-  <h2>Sender CAF IPTV</h2>
+  <h2>IPTV+ Sender</h2>
+
+  <input id="urlInput" placeholder="Pega un MPD (ClearKey) aquí..." value="https://cdn.cvattv.com.ar/live/c6eds/Canal7/SA_Live_dash_enc/Canal7.mpd">
+
   <div class="controls">
-    <google-cast-button aria-label="Cast"></google-cast-button>
-    <button id="loadBtn" disabled>Cargar y reproducir</button>
+    <google-cast-button></google-cast-button>
+    <button id="btnCast" disabled>Enviar al Chromecast</button>
   </div>
+
   <div id="status">Inicializando...</div>
 </div>
 
-<!-- fragmento: sender (sustituir en tu index.html) -->
+
 <script>
 (function(){
-  const APP_ID = 'AAA48312'; // registrar y poner aquí
-  const MEDIA_URL = 'https://cdn.cvattv.com.ar/live/c6eds/Canal7/SA_Live_dash_enc/Canal7.mpd';
-  const CLEAR_KEYS = {
-    "cc8c82ac2ec7e9799527c29db7354e81": "cc4aae173dd2ef17ae26be3f7ae87662"
-  };
 
+  const APP_ID = "AAA48312";   // ⚠ Reemplazar
+
+  const btn = document.getElementById('btnCast');
+  const urlInput = document.getElementById('urlInput');
   const statusEl = document.getElementById('status');
-  const loadBtn = document.getElementById('loadBtn');
-  let inited = false;
 
-  function setStatus(text,color){ statusEl.textContent = text; statusEl.style.color = color||''; console.log('[sender]', text); }
 
-  function waitForCastApi(timeoutMs = 5000){
+  function status(msg, color){
+    statusEl.textContent = msg;
+    if(color) statusEl.style.color = color;
+  }
+
+  async function ensureCastReady(){
+    if(window.cast && window.cast.framework) return true;
     return new Promise(resolve=>{
-      if(window.__onGCastApiAvailable) { /* someone else set it */ }
-      const finish = (isAvailable) => resolve(!!isAvailable);
-      window.__onGCastApiAvailable = function(isAvailable){
-        finish(isAvailable);
-      };
-      // also check already-present
-      if(window.cast && window.cast.framework && cast.framework.CastContext) return resolve(true);
-      // fallback timeout
-      setTimeout(()=>resolve(!!(window.cast && window.cast.framework)), timeoutMs);
+      window.__onGCastApiAvailable = () => resolve(true);
+      setTimeout(()=>resolve(false), 2000);
     });
   }
 
+
   async function init(){
-    if(inited) return;
-    const ok = await waitForCastApi(7000);
-    if(!ok){ setStatus('SDK de Cast no disponible', 'crimson'); loadBtn.disabled = true; return; }
-
-    try{
-      const context = cast.framework.CastContext.getInstance();
-      context.setOptions({ receiverApplicationId: APP_ID });
-      context.addEventListener(cast.framework.CastContextEventType.SESSION_STATE_CHANGED,(e)=>{
-        const s = e.sessionState;
-        console.log('[cast] session state', s);
-        if(s === cast.framework.SessionState.SESSION_STARTED) setStatus('Sesión iniciada', 'green');
-        else if(s === cast.framework.SessionState.SESSION_RESUMED) setStatus('Sesión reanudada', 'green');
-        else if(s === cast.framework.SessionState.SESSION_ENDED) setStatus('Sesión finalizada', 'grey');
-      });
-
-      loadBtn.disabled = false;
-      loadBtn.addEventListener('click', ()=>onLoadClick(context));
-      setStatus('Listo', 'green');
-      inited = true;
-    }catch(err){
-      console.error('init error', err);
-      setStatus('Error inicializando SDK de Cast', 'crimson');
-      loadBtn.disabled = true;
+    const ok = await ensureCastReady();
+    if(!ok){
+      status("Error cargando Cast SDK", "crimson");
+      return;
     }
+
+    const ctx = cast.framework.CastContext.getInstance();
+    ctx.setOptions({
+      receiverApplicationId: APP_ID,
+      autoJoinPolicy: chrome.cast.AutoJoinPolicy.TAB_AND_ORIGIN_SCOPED
+    });
+
+    ctx.addEventListener(
+      cast.framework.CastContextEventType.SESSION_STATE_CHANGED,
+      evt => {
+        if(evt.sessionState === cast.framework.SessionState.SESSION_STARTED)
+          status("Conectado con Chromecast", "green");
+        if(evt.sessionState === cast.framework.SessionState.SESSION_ENDED)
+          status("Sesión finalizada", "gray");
+      }
+    );
+
+    btn.disabled = false;
+    btn.onclick = () => sendToCast(ctx);
+
+    status("Listo", "green");
   }
 
-  async function requestSession(context){
-    try{
-      return await context.requestSession();
-    }catch(e){
-      console.error('requestSession failed', e);
-      return null;
-    }
-  }
 
-  function buildLoadRequest(){
-    const mediaInfo = new chrome.cast.media.MediaInfo(MEDIA_URL, 'application/dash+xml');
-    // Para live MPD
-    mediaInfo.streamType = chrome.cast.media.StreamType.LIVE; // <--- importante si es live
-    const metadata = new chrome.cast.media.MediaMetadata(chrome.cast.media.MetadataType.MOVIE);
-    metadata.title = "TV Pública (ClearKey)";
-    mediaInfo.metadata = metadata;
-    mediaInfo.customData = { shaka: { drm: { clearKeys: CLEAR_KEYS } } };
+  async function sendToCast(ctx){
+    const mpd = urlInput.value.trim();
+    if(!mpd){
+      status("Pegá un MPD válido", "crimson");
+      return;
+    }
+
+    status("Enviando al Chromecast...", "orange");
+
+    let session = ctx.getCurrentSession();
+    if(!session){
+      try{
+        session = await ctx.requestSession();
+      }catch(e){
+        status("No se pudo abrir sesión", "crimson");
+        return;
+      }
+    }
+
+    // INFO mínima necesaria (sin DRM)
+    const mediaInfo = new chrome.cast.media.MediaInfo(mpd, "application/dash+xml");
+    mediaInfo.metadata = new chrome.cast.media.GenericMediaMetadata();
+    mediaInfo.metadata.title = "IPTV+ — Streaming";
 
     const request = new chrome.cast.media.LoadRequest(mediaInfo);
     request.autoplay = true;
-    request.playPosition = 0;
-    return request;
-  }
-
-  async function onLoadClick(context){
-    setStatus('Preparando...', 'orange');
-    let session = context.getCurrentSession && context.getCurrentSession();
-    if(!session){
-      setStatus('Solicitando sesión...', 'orange');
-      session = await requestSession(context);
-    }
-    if(!session){ setStatus('No se pudo establecer sesión', 'crimson'); return; }
 
     try{
-      console.log('load request', MEDIA_URL);
-      const result = await session.loadMedia(buildLoadRequest());
-      console.log('load result', result);
-      setStatus('Reproduciendo en el dispositivo', 'green');
+      await session.loadMedia(request);
+      status("Reproduciendo en el Chromecast", "green");
     }catch(e){
-      console.error('Error en session.loadMedia', e);
-      setStatus('Error al cargar media: ' + (e && e.description ? e.description : e.message || e), 'crimson');
+      console.error(e);
+      status("Error al cargar media", "crimson");
     }
   }
 
-  document.addEventListener('DOMContentLoaded', init);
-  // si el SDK ya cargó
-  if(window.cast && window.cast.framework) init();
+
+  document.addEventListener("DOMContentLoaded", init);
 })();
 </script>
+
 </body>
 </html>
