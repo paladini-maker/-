@@ -1,88 +1,70 @@
+<!doctype html>
 <html lang="es">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Receiver — CAF + Shaka + ClearKey</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Receiver — CAF + Shaka + UI</title>
   <script src="https://www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.15.12/shaka-player.compiled.js"></script>
-  <style>html,body{height:100%;margin:0;background:black}video{width:100%;height:100%;object-fit:contain;background:black}</style>
+  <style>
+    html,body{height:100%;margin:0;background:black;color:white;font-family:sans-serif}
+    video{width:100%;height:80%;background:black}
+    #status{padding:5px;background:#222;text-align:center}
+  </style>
 </head>
 <body>
-  <video id="video" playsinline></video>
+  <video id="video" playsinline controls></video>
+  <div id="status">Esperando carga de MPD...</div>
 
   <script>
-    (async () => {
+    (async()=>{
       shaka.polyfill.installAll();
-
       const ctx = cast.framework.CastReceiverContext.getInstance();
-      const playerManager = ctx.getPlayerManager();
+      const manager = ctx.getPlayerManager();
       const video = document.getElementById('video');
       const shakaPlayer = new shaka.Player(video);
+      const status = document.getElementById('status');
+      let currentAbortController = null;
 
-      // Local DB: MPD -> { kidHex: keyHex }
       const CLEARKKEY_DB_HEX = {
         'https://cdn.cvattv.com.ar/live/c6eds/Canal7/SA_Live_dash_enc/Canal7.mpd': {
-          'cc8c82ac2ec7e9799527c29db7354e81': 'cc4aae173dd2ef17ae26be3f7ae87662'
+          'cc8c82ac2ec7e9799527c29db7354e81':'cc4aae173dd2ef17ae26be3f7ae87662'
         }
       };
 
-      const hexRe = /^[0-9a-fA-F]+$/;
-      function isHex(s){ return typeof s === 'string' && hexRe.test(s); }
-      function validHexMap(m){ return m && typeof m === 'object' && Object.entries(m).every(([k,v]) => isHex(k) && isHex(v)); }
+      function isHex(s){ return typeof s==='string' && /^[0-9a-fA-F]+$/.test(s); }
+      function validHexMap(m){ return m && typeof m==='object' && Object.entries(m).every(([k,v])=>isHex(k)&&isHex(v)); }
+      function hexToBase64(hex){const bytes=new Uint8Array(hex.match(/.{1,2}/g).map(b=>parseInt(b,16)));let bin='';for(const c of bytes) bin+=String.fromCharCode(c);return btoa(bin);}
+      function buildClearKeysBase64FromHexMap(hexMap){const out={};for(const[k,v]of Object.entries(hexMap)) out[hexToBase64(k)]=hexToBase64(v);return out;}
+      function getHexKeysForMpd(mpd){return CLEARKKEY_DB_HEX[mpd]||null;}
 
-      function hexToBase64(hex){
-        const bytes = new Uint8Array(hex.match(/.{1,2}/g).map(b => parseInt(b,16)));
-        let bin = '';
-        for (const c of bytes) bin += String.fromCharCode(c);
-        return btoa(bin);
-      }
+      manager.setMessageInterceptor(cast.framework.messages.MessageType.LOAD, async req=>{
+        try{
+          const media=req.media||{};
+          const mpd=media.contentId||media.contentUrl;
+          if(!mpd) return req;
 
-      function buildClearKeysBase64FromHexMap(hexMap){
-        const out = {};
-        for (const [kidHex,keyHex] of Object.entries(hexMap)) out[hexToBase64(kidHex)] = hexToBase64(keyHex);
-        return out;
-      }
-
-      function getHexKeysForMpd(mpd){ return CLEARKKEY_DB_HEX[mpd] || null; }
-
-      // Interceptor LOAD: no modifica la petición enviada por el sender; aplica DRM local y delega carga a Shaka
-      playerManager.setMessageInterceptor(cast.framework.messages.MessageType.LOAD, async loadRequest => {
-        try {
-          const media = loadRequest.media || {};
-          const mpd = media.contentId || media.contentUrl || (media.metadata && media.metadata.playbackUrl);
-          if (!mpd) return loadRequest;
+          // Cancelar abortos previos
+          if(currentAbortController) try{ currentAbortController.abort(); } catch{} 
+          currentAbortController = new AbortController();
 
           // Unload previo y limpiar estado
           await shakaPlayer.unload().catch(()=>{});
 
-          // Obtener claves locales en hex y validar
-          const keysHex = getHexKeysForMpd(mpd);
-          if (!keysHex || !validHexMap(keysHex)) {
-            console.warn('No ClearKeys válidos para MPD:', mpd);
-            // Devolvemos la request intacta; CAF seguirá su flujo (y puede fallar si MPD está cifrado)
-            return loadRequest;
-          }
+          // Configurar ClearKey antes de cargar MPD
+          const keysHex=getHexKeysForMpd(mpd);
+          if(!keysHex||!validHexMap(keysHex)) console.warn('No ClearKeys válidos para MPD:',mpd);
+          shakaPlayer.configure({ drm:{ clearKeys: keysHex?buildClearKeysBase64FromHexMap(keysHex):{} } });
 
-          // Convertir a base64 (EME espera bytes en base64) y configurar DRM antes de la carga
-          const clearKeys = buildClearKeysBase64FromHexMap(keysHex);
-          shakaPlayer.configure({ drm: { clearKeys } });
+          status.textContent='Cargando MPD: '+mpd;
+          await shakaPlayer.load(mpd).catch(err=>{console.error('Shaka load error:',err); status.textContent='Error al cargar MPD';});
+          status.textContent='Reproduciendo MPD';
 
-          // Cargar mediante Shaka (Shaka hará fetch del MPD y manejará el EME ClearKey)
-          await shakaPlayer.load(mpd).catch(err => {
-            console.error('Shaka load error:', err);
-          });
-
-          // Retornar la request sin modificaciones (cumple spec CAF)
-          return loadRequest;
-        } catch (e) {
-          console.error('LOAD interceptor error:', e);
-          return loadRequest;
-        }
+          return req;
+        }catch(e){console.error('Interceptor error:',e); status.textContent='Error en interceptor'; return req;}
       });
 
-      shakaPlayer.addEventListener('error', evt => console.error('Shaka error event:', evt));
-
-      // Start receiver (CAF)
+      shakaPlayer.addEventListener('error',e=>{console.error('Shaka error:',e); status.textContent='Error de Shaka';});
       ctx.start();
     })();
   </script>
