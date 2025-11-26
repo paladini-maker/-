@@ -1,72 +1,62 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Receiver — CAF + Shaka + UI</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Receiver Shaka + ClearKey</title>
+
   <script src="https://www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.15.12/shaka-player.compiled.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/shaka-player@4.15.12/dist/shaka-player.compiled.js"></script>
+
   <style>
-    html,body{height:100%;margin:0;background:black;color:white;font-family:sans-serif}
-    video{width:100%;height:80%;background:black}
-    #status{padding:5px;background:#222;text-align:center}
+    body { margin:0; background:black; display:flex; justify-content:center; align-items:center; height:100vh; flex-direction:column; color:white; }
+    video { width:100%; max-width:1280px; height:auto; background:black; }
+    #status { margin-top:10px; font-size:16px; color:#aaa; }
   </style>
 </head>
 <body>
-  <video id="video" playsinline controls></video>
-  <div id="status">Esperando carga de MPD...</div>
+  <video id="video" autoplay controls></video>
+  <div id="status">Esperando media...</div>
 
   <script>
-    (async()=>{
-      shaka.polyfill.installAll();
-      const ctx = cast.framework.CastReceiverContext.getInstance();
-      const manager = ctx.getPlayerManager();
-      const video = document.getElementById('video');
-      const shakaPlayer = new shaka.Player(video);
-      const status = document.getElementById('status');
-      let currentAbortController = null;
+    const video = document.getElementById('video');
+    const player = new shaka.Player(video);
 
-      const CLEARKKEY_DB_HEX = {
-        'https://cdn.cvattv.com.ar/live/c6eds/Canal7/SA_Live_dash_enc/Canal7.mpd': {
-          'cc8c82ac2ec7e9799527c29db7354e81':'cc4aae173dd2ef17ae26be3f7ae87662'
+    // Configuración ClearKey
+    player.configure({
+      drm: {
+        clearKeys: {
+          '0123456789abcdef0123456789abcdef': '0123456789abcdef0123456789abcdef'
         }
-      };
+      }
+    });
 
-      function isHex(s){ return typeof s==='string' && /^[0-9a-fA-F]+$/.test(s); }
-      function validHexMap(m){ return m && typeof m==='object' && Object.entries(m).every(([k,v])=>isHex(k)&&isHex(v)); }
-      function hexToBase64(hex){const bytes=new Uint8Array(hex.match(/.{1,2}/g).map(b=>parseInt(b,16)));let bin='';for(const c of bytes) bin+=String.fromCharCode(c);return btoa(bin);}
-      function buildClearKeysBase64FromHexMap(hexMap){const out={};for(const[k,v]of Object.entries(hexMap)) out[hexToBase64(k)]=hexToBase64(v);return out;}
-      function getHexKeysForMpd(mpd){return CLEARKKEY_DB_HEX[mpd]||null;}
+    const context = cast.framework.CastReceiverContext.getInstance();
+    const playerManager = context.getPlayerManager();
 
-      manager.setMessageInterceptor(cast.framework.messages.MessageType.LOAD, async req=>{
-        try{
-          const media=req.media||{};
-          const mpd=media.contentId||media.contentUrl;
-          if(!mpd) return req;
+    // Interceptar LOAD
+    playerManager.setMessageInterceptor(cast.framework.messages.MessageType.LOAD, (loadRequestData) => {
+      const media = loadRequestData.media;
+      if(media && media.contentId){
+        player.load(media.contentId).then(() => {
+          document.getElementById('status').textContent = 'Reproduciendo: ' + media.contentId;
+        }).catch(e => {
+          console.error('Error Shaka:', e);
+          document.getElementById('status').textContent = 'Error cargando media';
+        });
+      }
+      return loadRequestData;
+    });
 
-          // Cancelar abortos previos
-          if(currentAbortController) try{ currentAbortController.abort(); } catch{} 
-          currentAbortController = new AbortController();
+    context.start();
 
-          // Unload previo y limpiar estado
-          await shakaPlayer.unload().catch(()=>{});
+    context.addEventListener(cast.framework.CastReceiverEventType.CAST_CHANNEL_CONNECTED, () => {
+      document.getElementById('status').textContent = 'Sender conectado';
+    });
 
-          // Configurar ClearKey antes de cargar MPD
-          const keysHex=getHexKeysForMpd(mpd);
-          if(!keysHex||!validHexMap(keysHex)) console.warn('No ClearKeys válidos para MPD:',mpd);
-          shakaPlayer.configure({ drm:{ clearKeys: keysHex?buildClearKeysBase64FromHexMap(keysHex):{} } });
-
-          status.textContent='Cargando MPD: '+mpd;
-          await shakaPlayer.load(mpd).catch(err=>{console.error('Shaka load error:',err); status.textContent='Error al cargar MPD';});
-          status.textContent='Reproduciendo MPD';
-
-          return req;
-        }catch(e){console.error('Interceptor error:',e); status.textContent='Error en interceptor'; return req;}
-      });
-
-      shakaPlayer.addEventListener('error',e=>{console.error('Shaka error:',e); status.textContent='Error de Shaka';});
-      ctx.start();
-    })();
+    context.addEventListener(cast.framework.CastReceiverEventType.CAST_CHANNEL_DISCONNECTED, () => {
+      document.getElementById('status').textContent = 'Esperando media...';
+    });
   </script>
 </body>
 </html>
