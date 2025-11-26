@@ -3,91 +3,70 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Sender — Cast Web Sender con estado</title>
+  <title>Sender Web Optimizado — Shaka + ClearKey + Cast</title>
+
+  <!-- Google Cast Web Sender SDK -->
   <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
+
   <style>
-    body {
-      font-family: sans-serif;
-      margin: 20px;
-      background: #111;
-      color: #eee;
-    }
-
-    h2 {
-      margin-bottom: 20px;
-    }
-
-    #controls {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-
-    input {
-      flex: 1;
-      padding: 8px;
-      font-size: 16px;
-    }
-
-    button {
-      padding: 8px 16px;
-      font-size: 16px;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      background: #2979ff;
-      color: white;
-    }
-
-    #castButtonContainer {
-      width: 40px;
-      height: 40px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    #castStatus {
-      margin-left: 8px;
-      font-size: 14px;
-      color: #aaa;
-    }
+    body { font-family: sans-serif; margin: 20px; background: #111; color: #eee; }
+    #controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    input { flex: 1; padding: 8px; font-size: 16px; min-width: 200px; }
+    button { padding: 8px 16px; font-size: 16px; border: none; border-radius: 4px; cursor: pointer; background: #2979ff; color: white; }
+    #castButtonContainer { width: 40px; height: 40px; display: inline-flex; align-items: center; justify-content: center; }
+    #castStatus { margin-left: 8px; font-size: 14px; color: #aaa; }
+    #mediaControls { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
   </style>
 </head>
 <body>
-  <h2>Web Sender — Carga MPD a Chromecast</h2>
+  <h2>Sender Web Optimizado</h2>
 
   <div id="controls">
     <input id="mpdInput" type="text" value="https://cdn.cvattv.com.ar/live/c6eds/Canal7/SA_Live_dash_enc/Canal7.mpd">
-    <button id="loadBtn">Cargar MPD</button>
+    <button id="loadBtn">Enviar al Chromecast</button>
     <div id="castButtonContainer"></div>
     <span id="castStatus">No conectado</span>
+  </div>
+
+  <div id="mediaControls">
+    <button id="playBtn">Play</button>
+    <button id="pauseBtn">Pause</button>
+    <button id="stopBtn">Stop</button>
+    <input id="seekInput" type="number" placeholder="Segundos" min="0" style="width:80px;">
+    <button id="seekBtn">Ir a</button>
+    <input id="volumeInput" type="number" placeholder="Volumen 0-1" min="0" max="1" step="0.05" style="width:80px;">
+    <button id="setVolumeBtn">Volumen</button>
   </div>
 
   <script>
     const CONFIG = { APP_ID: 'AAA48312', MIME: 'application/dash+xml' };
 
+    let remotePlayer, remoteController;
+
     window['__onGCastApiAvailable'] = function(isAvailable) {
       if (!isAvailable) return console.warn('Cast API no disponible');
 
-      const ctx = cast.framework.CastContext.getInstance();
-      ctx.setOptions({
+      const context = cast.framework.CastContext.getInstance();
+      context.setOptions({
         receiverApplicationId: CONFIG.APP_ID,
         autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
       });
 
-      // Crear el botón Cast oficial
+      // Botón Cast oficial
       const castBtnContainer = document.getElementById('castButtonContainer');
       new cast.framework.ui.CastButton(castBtnContainer);
 
       const castStatus = document.getElementById('castStatus');
 
-      // Escuchar cambios de estado de la sesión
-      ctx.addEventListener(cast.framework.CastContextEventType.SESSION_STATE_CHANGED, (event) => {
+      // RemotePlayer + RemotePlayerController
+      remotePlayer = new cast.framework.RemotePlayer();
+      remoteController = new cast.framework.RemotePlayerController(remotePlayer);
+
+      context.addEventListener(cast.framework.CastContextEventType.SESSION_STATE_CHANGED, (event) => {
         switch(event.sessionState) {
           case cast.framework.SessionState.SESSION_STARTED:
           case cast.framework.SessionState.SESSION_RESUMED:
-            castStatus.textContent = 'Conectado a ' + ctx.getCurrentSession().getCastDevice().friendlyName;
+            castStatus.textContent = 'Conectado a ' + context.getCurrentSession().getCastDevice().friendlyName;
             break;
           case cast.framework.SessionState.SESSION_ENDED:
             castStatus.textContent = 'No conectado';
@@ -98,22 +77,40 @@
       });
     };
 
-    document.getElementById('loadBtn').addEventListener('click', async () => {
-      const mpdUrl = document.getElementById('mpdInput').value;
+    // Función para enviar MPD al receiver
+    async function loadMedia(url) {
       const session = cast.framework.CastContext.getInstance().getCurrentSession();
-      if (!session) return alert('No hay sesión Cast activa');
+      if (!session) return alert('No hay Chromecast conectado');
 
-      const currentMedia = session.getMediaSession();
-      if (currentMedia) {
-        try { await currentMedia.stop(); } catch(e) { console.warn('Error al detener media previa', e); }
+      try {
+        const mediaInfo = new chrome.cast.media.MediaInfo(url, CONFIG.MIME);
+        const request = new chrome.cast.media.LoadRequest(mediaInfo);
+        request.autoplay = true;
+        request.currentTime = 0;
+        await session.loadMedia(request);
+        console.log('Media enviada a Chromecast');
+      } catch (e) {
+        console.error('Error enviando media:', e);
+        alert('Error enviando media a Chromecast');
       }
+    }
 
-      const mediaInfo = new chrome.cast.media.MediaInfo(mpdUrl, CONFIG.MIME);
-      const request = new chrome.cast.media.LoadRequest(mediaInfo);
-      request.autoplay = true;
-      request.currentTime = 0;
+    document.getElementById('loadBtn').addEventListener('click', () => {
+      const mpdUrl = document.getElementById('mpdInput').value;
+      loadMedia(mpdUrl);
+    });
 
-      session.loadMedia(request).catch(e => console.error('Error load sender:', e));
+    // Controles RemotePlayerController
+    document.getElementById('playBtn').addEventListener('click', () => { if(remoteController) remoteController.play(); });
+    document.getElementById('pauseBtn').addEventListener('click', () => { if(remoteController) remoteController.pause(); });
+    document.getElementById('stopBtn').addEventListener('click', () => { if(remoteController) remoteController.stop(); });
+    document.getElementById('seekBtn').addEventListener('click', () => {
+      const sec = parseFloat(document.getElementById('seekInput').value) || 0;
+      if(remoteController) { remotePlayer.currentTime = sec; remoteController.seek(); }
+    });
+    document.getElementById('setVolumeBtn').addEventListener('click', () => {
+      const vol = parseFloat(document.getElementById('volumeInput').value);
+      if(!isNaN(vol) && remoteController) { remotePlayer.volumeLevel = vol; remoteController.setVolumeLevel(); }
     });
   </script>
 </body>
