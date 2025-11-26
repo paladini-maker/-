@@ -1,165 +1,88 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="es">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Custom Receiver — Shaka ClearKey</title>
-
-<script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.15.12/shaka-player.compiled.js"></script>
-<script src="https://www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
-
-<style>
-  html,body{margin:0;height:100%;background:#000}
-  video{width:100%;height:100%;background:#000}
-</style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>IPTV+ — Custom Receiver</title>
+  <script src="https://www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.15.12/shaka-player.compiled.js"></script>
+  <style>
+    body{font-family:system-ui;margin:12px}
+    #log{white-space:pre-wrap;background:#111;color:#eee;padding:12px;border-radius:6px;height:160px;overflow:auto}
+  </style>
 </head>
 <body>
+  <h3>IPTV+ — Receiver</h3>
+  <div id="status">Inicializando…</div>
+  <div id="log"></div>
 
-<video id="video" autoplay></video>
+  <script>
+    const logEl=document.getElementById('log');
+    const statusEl=document.getElementById('status');
+    const log=(...a)=>{const t=new Date().toISOString()+' | '+a.join(' ')+'\n';logEl.textContent=t+logEl.textContent;console.log(...a);} 
+    const setStatus=s=>statusEl.textContent=s;
 
-<script>
-(async () => {
+    const ctx=cast.framework.CastReceiverContext.getInstance();
+    const pm=ctx.getPlayerManager();
 
-  //---------------------------------------------------------------------------
-  // 🔐 CLEARKEYS PRIVADAS — SOLO EN EL RECEIVER
-  //---------------------------------------------------------------------------
-
-  const CLEARKEYS = {
-    "https://cdn.cvattv.com.ar/live/c6eds/Canal7/SA_Live_dash_enc/Canal7.mpd": {
-      "cc8c82ac2ec7e9799527c29db7354e81": "cc4aae173dd2ef17ae26be3f7ae87662"
-    },
-
-    // EJEMPLO para agregar más canales:
-    // "https://otro.mpd": {
-    //   "KEYID": "KEY"
-    // }
-  };
-
-  //---------------------------------------------------------------------------
-  // CAST + SHAKA SETUP
-  //---------------------------------------------------------------------------
-
-  const video = document.getElementById('video');
-  const player = new shaka.Player(video);
-
-  const context = cast.framework.CastReceiverContext.getInstance();
-  const manager = context.getPlayerManager();
-
-  // Errores de Shaka
-  player.addEventListener('error', e => console.error('Shaka error:', e.detail));
-
-  // Cuando el sender envía un LOAD
-  manager.setMessageInterceptor(
-    cast.framework.messages.MessageType.LOAD,
-    async request => {
-
-      const url = request.media.contentId;
-
-      console.log("Cargando media:", url);
-
-      // Buscar claves del canal solicitado
-      const keys = CLEARKEYS[url];
-
-      if (keys) {
-        console.log("Clave encontrada para", url);
-
-        player.configure({
-          drm: {
-            clearKeys: keys
-          }
-        });
-      } else {
-        console.warn("No hay claves para:", url);
-      }
-
-      // Reemplaza el sistema de carga interno del CAF por Shaka
-      try {
-        await player.load(url);
-        console.log("Reproducción iniciada");
-      } catch(err) {
-        console.error("Error cargando MPD:", err);
-      }
-
-      // Cancelar que CAF intente manejar la carga tradicional
-      return null;
+    let player=null,video=null;
+    function ensureShaka(){
+      if(player) return player;
+      video=document.createElement('video');
+      video.setAttribute('playsinline','');
+      video.style.width='100%';
+      document.body.appendChild(video);
+      player=new shaka.Player(video);
+      return player;
     }
-  );
 
-  context.start();
+    function base64ToHex(b){ try{const r=atob(b);let h='';for(let i=0;i<r.length;i++)h+=r.charCodeAt(i).toString(16).padStart(2,'0');return h;}catch(e){return null;} }
 
-})();
-</script>
+    pm.setMessageInterceptor(cast.framework.messages.MessageType.LOAD,async req=>{
+      try{
+        log('LOAD',JSON.stringify(req));
+        const media=req.media;
+        if(!media||!media.contentId) return req;
 
-</body>
-</html>
-  // Handler para LOAD (intercepta la carga desde el sender)
-  manager.setMessageInterceptor(cast.framework.messages.MessageType.LOAD, async (loadRequestData) => {
-    try{
-      const media = loadRequestData.media;
-      if(!media){ console.warn('LOAD sin media'); return loadRequestData; }
+        const src=media.contentId;
+        const custom=media.customData||{};
 
-      const src = media.contentId;
-      const customData = media.customData || {};
-      // Shaka espera clearKeys en hex
-      const drmConfig = (customData.shaka && customData.shaka.drm) || {};
+        const p=ensureShaka();
 
-      // configurar Shaka
-      player.configure({ drm: drmConfig });
+        // ---- CLEARKEY AUTOMÁTICO PARA EL MPD QUE ME PASASTE ----
+        // keyId : key  (ya en HEX)
+        const clearkey_kid="cc8c82ac2ec7e9799527c29db7354e81";
+        const clearkey_key="cc4aae173dd2ef17ae26be3f7ae87662";
 
-      // Cuidado: las llamadas await dentro del interceptor pueden bloquear la respuesta si fallan.
-      await player.load(src);
+        const drmCfg={
+          clearKeys:{ [clearkey_kid]: clearkey_key }
+        };
 
-      // Después de cargar, actualizamos la metadata del manager
-      // (broadcastStatus actualiza puntos como duration/position)
-      manager.broadcastStatus(true);
-      console.log('LOAD OK ->', src);
-      return loadRequestData;
-    }catch(err){
-      console.error('Error en LOAD interceptor:', err);
-      // retornar null evita que el SDK procese el LOAD por defecto
-      return null;
-    }
-  });
+        p.configure({ drm: drmCfg });
+        log('DRM ClearKey aplicado',JSON.stringify(drmCfg));
 
-  // Control play/pause/seek/stop: mapear comandos al video/shaka
-  const toPlayPause = ({shouldPlay}) => {
-    try{
-      if(shouldPlay) video.play();
-      else video.pause();
-    }catch(e){ console.warn('play/pause error', e); }
-    manager.broadcastStatus(true);
-  };
+        const loadPromise=p.load(src);
+        const timeout=15000;
+        await Promise.race([
+          loadPromise,
+          new Promise((_,rej)=>setTimeout(()=>rej('timeout loading mpd'),timeout))
+        ]);
 
-  // El SDK ofrece interceptors para controles si los necesitás (ejemplo conceptual):
-  manager.setMessageInterceptor(cast.framework.messages.MessageType.PAUSE, request => {
-    video.pause();
-    manager.broadcastStatus(true);
-    return request;
-  });
-  manager.setMessageInterceptor(cast.framework.messages.MessageType.PLAY, request => {
-    video.play();
-    manager.broadcastStatus(true);
-    return request;
-  });
-  manager.setMessageInterceptor(cast.framework.messages.MessageType.SEEK, request => {
-    try{
-      const seekTime = request.currentTime || request.seekTime || (request && request.seek && request.seek.currentTime);
-      if(typeof seekTime === 'number' && !isNaN(seekTime)) video.currentTime = seekTime;
-      manager.broadcastStatus(true);
-    }catch(e){ console.warn('seek error', e); }
-    return request;
-  });
+        log('MPD OK',src);
+        setStatus('Reproduciendo: '+src);
+        pm.broadcastStatus(true);
+        return req;
 
-  // Empezar receiver
-  context.start();
+      }catch(e){ log('ERROR LOAD',e); return null; }
+    });
 
-  // Debug: reportar estado de Shaka -> manager periódicamente (opcional)
-  setInterval(()=>{
-    // sincronizar posición y estado con el sender
-    manager.broadcastStatus(true);
-  }, 1000);
+    pm.addEventListener(cast.framework.events.EventType.PLAY,()=>pm.broadcastStatus(true));
+    pm.addEventListener(cast.framework.events.EventType.PAUSE,()=>pm.broadcastStatus(true));
+    pm.addEventListener(cast.framework.events.EventType.SEEK,()=>pm.broadcastStatus(true));
+    pm.addEventListener(cast.framework.events.EventType.STOP,()=>pm.broadcastStatus(false));
 
-})();
-</script>
+    ctx.start();
+    setStatus('Receiver listo');
+    log('Receiver iniciado');
 </body>
 </html>
