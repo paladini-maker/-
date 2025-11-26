@@ -1,40 +1,107 @@
+
+<!-- receiver/index.html (mejorado) -->
 <!DOCTYPE html>
 <html lang="es">
 <head>
-<meta charset="UTF-8">
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>Receiver CAF — Shaka ClearKey</title>
+<script src="https://www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.15.12/shaka-player.compiled.js"></script>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.15.12/controls.css">
 <style>html,body{margin:0;height:100%;background:#000} video{width:100%;height:100%;background:#000}</style>
 </head>
 <body>
 <video id="video" autoplay playsinline></video>
 <script>
 (async function(){
-  const context = cast.framework.CastReceiverContext.getInstance();
-  context.start();
+  // Opciones del receiver
+  const options = new cast.framework.CastReceiverOptions();
+  options.maxInactivity = 600; // extender timeout durante debug si querés
+  const context = cast.framework.CastReceiverContext.getInstance(options);
 
-  const player = new shaka.Player(document.getElementById('video'));
-  player.addEventListener('error', e=>console.error('Shaka error',e.detail));
+  // Instancio player Shaka
+  const video = document.getElementById('video');
+  const player = new shaka.Player(video);
+
+  player.addEventListener('error', e => {
+    console.error('Shaka error', e.detail);
+    // opcional: notificar al sender o setear estado
+  });
+
+  // Logger receiver
+  cast.framework.CastReceiverContext.getInstance().addCustomMessageListener('urn:x-cast:com.example.debug', (data) => {
+    console.log('custom message', data);
+  });
 
   const manager = context.getPlayerManager();
-  manager.setMessageInterceptor(cast.framework.messages.MessageType.LOAD, async request=>{
-    const media = request.media;
-    if(!media) return request;
 
-    const src = media.contentId;
-    const customData = media.customData || {};
-    const drmConfig = (customData.shaka && customData.shaka.drm) || {};
-
+  // Handler para LOAD (intercepta la carga desde el sender)
+  manager.setMessageInterceptor(cast.framework.messages.MessageType.LOAD, async (loadRequestData) => {
     try{
-      player.configure({ drm: drmConfig });
-      await player.load(src);
-      console.log('Media cargado', src);
-    }catch(err){ console.error('Error cargando media:', err); }
+      const media = loadRequestData.media;
+      if(!media){ console.warn('LOAD sin media'); return loadRequestData; }
 
+      const src = media.contentId;
+      const customData = media.customData || {};
+      // Shaka espera clearKeys en hex
+      const drmConfig = (customData.shaka && customData.shaka.drm) || {};
+
+      // configurar Shaka
+      player.configure({ drm: drmConfig });
+
+      // Cuidado: las llamadas await dentro del interceptor pueden bloquear la respuesta si fallan.
+      await player.load(src);
+
+      // Después de cargar, actualizamos la metadata del manager
+      // (broadcastStatus actualiza puntos como duration/position)
+      manager.broadcastStatus(true);
+      console.log('LOAD OK ->', src);
+      return loadRequestData;
+    }catch(err){
+      console.error('Error en LOAD interceptor:', err);
+      // retornar null evita que el SDK procese el LOAD por defecto
+      return null;
+    }
+  });
+
+  // Control play/pause/seek/stop: mapear comandos al video/shaka
+  const toPlayPause = ({shouldPlay}) => {
+    try{
+      if(shouldPlay) video.play();
+      else video.pause();
+    }catch(e){ console.warn('play/pause error', e); }
+    manager.broadcastStatus(true);
+  };
+
+  // El SDK ofrece interceptors para controles si los necesitás (ejemplo conceptual):
+  manager.setMessageInterceptor(cast.framework.messages.MessageType.PAUSE, request => {
+    video.pause();
+    manager.broadcastStatus(true);
     return request;
   });
+  manager.setMessageInterceptor(cast.framework.messages.MessageType.PLAY, request => {
+    video.play();
+    manager.broadcastStatus(true);
+    return request;
+  });
+  manager.setMessageInterceptor(cast.framework.messages.MessageType.SEEK, request => {
+    try{
+      const seekTime = request.currentTime || request.seekTime || (request && request.seek && request.seek.currentTime);
+      if(typeof seekTime === 'number' && !isNaN(seekTime)) video.currentTime = seekTime;
+      manager.broadcastStatus(true);
+    }catch(e){ console.warn('seek error', e); }
+    return request;
+  });
+
+  // Empezar receiver
+  context.start();
+
+  // Debug: reportar estado de Shaka -> manager periódicamente (opcional)
+  setInterval(()=>{
+    // sincronizar posición y estado con el sender
+    manager.broadcastStatus(true);
+  }, 1000);
+
 })();
 </script>
 </body>
