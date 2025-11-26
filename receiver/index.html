@@ -2,61 +2,77 @@
 <html lang="es">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Receiver Shaka + ClearKey</title>
-
-  <script src="https://www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/shaka-player@4.15.12/dist/shaka-player.compiled.js"></script>
-
+  <title>Receiver Nativo CAF + ClearKey</title>
+  <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
   <style>
-    body { margin:0; background:black; display:flex; justify-content:center; align-items:center; height:100vh; flex-direction:column; color:white; }
-    video { width:100%; max-width:1280px; height:auto; background:black; }
-    #status { margin-top:10px; font-size:16px; color:#aaa; }
+    body { margin: 0; background-color: #000; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; }
+    /* Elemento de video "castMediaElement" es manejado por CAF */
+    cast-media-player {
+      width: 100%;
+      height: 100%;
+      --splash-image: url(''); /* Puedes poner un logo aquí */
+    }
   </style>
 </head>
 <body>
-  <video id="video" autoplay controls></video>
-  <div id="status">Esperando media...</div>
+  <cast-media-player></cast-media-player>
 
   <script>
-    const video = document.getElementById('video');
-    const player = new shaka.Player(video);
-
-    // Configuración ClearKey
-    player.configure({
-      drm: {
-        clearKeys: {
-          '0123456789abcdef0123456789abcdef': '0123456789abcdef0123456789abcdef'
-        }
-      }
-    });
-
     const context = cast.framework.CastReceiverContext.getInstance();
     const playerManager = context.getPlayerManager();
 
-    // Interceptar LOAD
-    playerManager.setMessageInterceptor(cast.framework.messages.MessageType.LOAD, (loadRequestData) => {
-      const media = loadRequestData.media;
-      if(media && media.contentId){
-        player.load(media.contentId).then(() => {
-          document.getElementById('status').textContent = 'Reproduciendo: ' + media.contentId;
-        }).catch(e => {
-          console.error('Error Shaka:', e);
-          document.getElementById('status').textContent = 'Error cargando media';
-        });
+    // 1. Interceptor de Configuración de Reproducción (PlaybackConfig)
+    // Aquí es donde inyectamos las llaves DRM nativamente.
+    playerManager.setMediaPlaybackInfoHandler((loadRequest, playbackConfig) => {
+      
+      const customData = loadRequest.media.customData;
+
+      if (customData && customData.license && customData.license.keys) {
+        // Configuramos la protección nativa de CAF
+        playbackConfig.protectionSystem = cast.framework.ContentProtection.CLEARKEY;
+        playbackConfig.licenseUrl = ''; // No necesario para ClearKey directo, pero requerido por la firma
+        
+        // Asignamos las llaves recibidas del Sender
+        playbackConfig.licenseCustomData = customData.license.keys; 
+        
+        // NOTA: CAF espera un formato específico para ClearKey. 
+        // A veces es necesario inyectar la configuración directamente en shakaConfig si CAF standard no lo toma.
+        // Hacemos un override a la configuración interna de Shaka que usa CAF:
+        
+        playbackConfig.shakaConfig = {
+          drm: {
+            clearKeys: customData.license.keys
+          }
+        };
       }
+
+      return playbackConfig;
+    });
+
+    // 2. Interceptor de Mensajes (Opcional, para logs o validaciones)
+    playerManager.setMessageInterceptor(cast.framework.messages.MessageType.LOAD, loadRequestData => {
+      console.log('Recibiendo solicitud de carga:', loadRequestData);
+      
+      // Validar si viene contenido
+      if (!loadRequestData.media) {
+        const error = new cast.framework.messages.ErrorData(cast.framework.messages.ErrorType.LOAD_FAILED);
+        error.reason = cast.framework.messages.ErrorReason.INVALID_REQUEST;
+        return error;
+      }
+      
       return loadRequestData;
     });
 
-    context.start();
-
-    context.addEventListener(cast.framework.CastReceiverEventType.CAST_CHANNEL_CONNECTED, () => {
-      document.getElementById('status').textContent = 'Sender conectado';
+    // Debug events
+    playerManager.addEventListener(cast.framework.events.EventType.ERROR, (event) => {
+      console.error('Error detallado de reproducción:', event);
     });
 
-    context.addEventListener(cast.framework.CastReceiverEventType.CAST_CHANNEL_DISCONNECTED, () => {
-      document.getElementById('status').textContent = 'Esperando media...';
-    });
+    // Iniciar Receiver con opciones optimizadas para evitar desconexiones rápidas en debug
+    const options = new cast.framework.CastReceiverOptions();
+    options.disableIdleTimeout = true; // Solo para desarrollo
+    
+    context.start(options);
   </script>
 </body>
 </html>
