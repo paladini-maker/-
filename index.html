@@ -1,37 +1,101 @@
 <!doctype html>
 <html lang="es">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Sender — Cast Web Sender con UI y boton Cast</title>
-  <script type="text/javascript" src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Sender — Cast Web Sender con estado</title>
+  <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
   <style>
-    body{font-family:sans-serif;margin:20px;background:#111;color:#eee}
-    button{margin:5px;padding:10px 20px;background:#2979ff;color:white;border:none;border-radius:4px;cursor:pointer}
-    input{width:60%;padding:8px;margin-right:5px}
-    #castButton{width:40px;height:40px;background:#2979ff;border-radius:50%;border:none;color:white;cursor:pointer;font-size:18px;font-weight:bold;display:flex;align-items:center;justify-content:center;margin-left:10px}
-    #controls{display:flex;align-items:center}
+    body {
+      font-family: sans-serif;
+      margin: 20px;
+      background: #111;
+      color: #eee;
+    }
+
+    h2 {
+      margin-bottom: 20px;
+    }
+
+    #controls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    input {
+      flex: 1;
+      padding: 8px;
+      font-size: 16px;
+    }
+
+    button {
+      padding: 8px 16px;
+      font-size: 16px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      background: #2979ff;
+      color: white;
+    }
+
+    #castButtonContainer {
+      width: 40px;
+      height: 40px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #castStatus {
+      margin-left: 8px;
+      font-size: 14px;
+      color: #aaa;
+    }
   </style>
 </head>
 <body>
   <h2>Web Sender — Carga MPD a Chromecast</h2>
+
   <div id="controls">
     <input id="mpdInput" type="text" value="https://cdn.cvattv.com.ar/live/c6eds/Canal7/SA_Live_dash_enc/Canal7.mpd">
     <button id="loadBtn">Cargar MPD</button>
-    <button id="castButton"></button>
+    <div id="castButtonContainer"></div>
+    <span id="castStatus">No conectado</span>
   </div>
 
   <script>
     const CONFIG = { APP_ID: 'AAA48312', MIME: 'application/dash+xml' };
+
     window['__onGCastApiAvailable'] = function(isAvailable) {
       if (!isAvailable) return console.warn('Cast API no disponible');
 
       const ctx = cast.framework.CastContext.getInstance();
-      ctx.setOptions({ receiverApplicationId: CONFIG.APP_ID, autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED });
+      ctx.setOptions({
+        receiverApplicationId: CONFIG.APP_ID,
+        autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
+      });
 
-      // Crear boton Cast usando CastSenderButton de la API oficial
-      const castBtn = document.getElementById('castButton');
-      const senderButton = new cast.framework.ui.CastButton(castBtn);
+      // Crear el botón Cast oficial
+      const castBtnContainer = document.getElementById('castButtonContainer');
+      new cast.framework.ui.CastButton(castBtnContainer);
+
+      const castStatus = document.getElementById('castStatus');
+
+      // Escuchar cambios de estado de la sesión
+      ctx.addEventListener(cast.framework.CastContextEventType.SESSION_STATE_CHANGED, (event) => {
+        switch(event.sessionState) {
+          case cast.framework.SessionState.SESSION_STARTED:
+          case cast.framework.SessionState.SESSION_RESUMED:
+            castStatus.textContent = 'Conectado a ' + ctx.getCurrentSession().getCastDevice().friendlyName;
+            break;
+          case cast.framework.SessionState.SESSION_ENDED:
+            castStatus.textContent = 'No conectado';
+            break;
+          default:
+            castStatus.textContent = 'No conectado';
+        }
+      });
     };
 
     document.getElementById('loadBtn').addEventListener('click', async () => {
