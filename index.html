@@ -3,35 +3,63 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Sender Web Pro — DASH + ClearKey</title>
+  <title>Sender Web Pro — Conexión Manual</title>
   <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
+  
   <style>
     body { font-family: 'Segoe UI', sans-serif; margin: 20px; background: #121212; color: #e0e0e0; }
     h2 { color: #bb86fc; }
-    .control-group { background: #1e1e1e; padding: 15px; border-radius: 8px; margin-bottom: 15px; border: 1px solid #333; }
-    .row { display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; align-items: center; }
-    input { flex: 1; padding: 10px; background: #2c2c2c; border: 1px solid #444; color: white; border-radius: 4px; }
-    button { padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; background: #03dac6; color: black; font-weight: bold; transition: background 0.2s; }
-    button:hover { background: #018786; }
-    button:disabled { background: #555; cursor: not-allowed; }
-    label { font-size: 0.9em; color: #aaa; min-width: 80px; }
-    #castStatus { margin-left: 10px; font-size: 0.9em; color: #03dac6; }
-    /* Google Cast Button container adjustments */
-    #google-cast-button { height: 40px; width: 40px; display: block; --connected-color: #03dac6; --disconnected-color: #aaa; }
+    .control-group { background: #1e1e1e; padding: 20px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #333; }
+    
+    /* Layout Flexible */
+    .row { display: flex; gap: 15px; margin-bottom: 15px; flex-wrap: wrap; align-items: center; }
+    
+    /* Estilos de Inputs */
+    input { flex: 1; padding: 12px; background: #2c2c2c; border: 1px solid #444; color: white; border-radius: 4px; min-width: 200px; }
+    
+    /* Botones Generales */
+    button { padding: 12px 24px; border: none; border-radius: 4px; cursor: pointer; background: #03dac6; color: black; font-weight: bold; font-size: 14px; transition: all 0.2s; }
+    button:hover { background: #018786; transform: translateY(-1px); }
+    button:active { transform: translateY(0); }
+    button:disabled { background: #444; color: #888; cursor: not-allowed; transform: none; }
+
+    /* Botón Manual de Conexión (Estilo destacado) */
+    #connectBtn { background: #bb86fc; color: white; }
+    #connectBtn:hover { background: #9955e6; }
+
+    /* Estilos Específicos para el Botón Oficial de Google */
+    #google-cast-button {
+        display: inline-block;
+        width: 40px; 
+        height: 40px; 
+        cursor: pointer;
+        --connected-color: #03dac6; 
+        --disconnected-color: #777;
+    }
+
+    label { font-size: 0.9em; color: #aaa; min-width: 70px; }
+    #castStatus { font-weight: bold; margin-left: 10px; }
+    .status-connected { color: #03dac6; }
+    .status-disconnected { color: #cf6679; }
   </style>
 </head>
 <body>
-  <h2>Sender Web: DASH + ClearKey</h2>
+
+  <h2>Sender Web Pro</h2>
 
   <div class="control-group">
     <div class="row">
-      <div id="google-cast-button"></div> <span id="castStatus">Desconectado</span>
+        <button id="connectBtn">📡 Conectar Manualmente</button>
+
+        <button is="google-cast-button" id="google-cast-button"></button>
+
+        <span id="castStatus" class="status-disconnected">Desconectado</span>
     </div>
   </div>
 
   <div class="control-group">
     <div class="row">
-      <label>MPD URL:</label>
+      <label>MPD:</label>
       <input id="mpdInput" type="text" value="https://cdn.cvattv.com.ar/live/c6eds/Canal7/SA_Live_dash_enc/Canal7.mpd">
     </div>
     <div class="row">
@@ -43,7 +71,7 @@
       <input id="keyInput" type="text" value="0123456789abcdef0123456789abcdef" placeholder="Key Value (Hex)">
     </div>
     <div class="row">
-      <button id="loadBtn">📺 Cargar en Chromecast</button>
+      <button id="loadBtn" disabled>📺 Enviar al TV</button>
     </div>
   </div>
 
@@ -54,83 +82,137 @@
       <button id="stopBtn">Stop</button>
     </div>
     <div class="row">
-      <input id="seekInput" type="number" placeholder="Segundos">
-      <button id="seekBtn">Seek</button>
-    </div>
-    <div class="row">
-      <input id="volumeInput" type="range" min="0" max="1" step="0.1">
-      <button id="volBtn">Set Vol</button>
+      <input id="seekInput" type="number" placeholder="Segundos" style="max-width: 100px;">
+      <button id="seekBtn">Ir a</button>
+      
+      <input id="volumeInput" type="range" min="0" max="1" step="0.05" value="1">
+      <button id="volBtn">Volumen</button>
     </div>
   </div>
 
   <script>
-    // IMPORTANTE: Reemplaza con tu App ID real registrado en la consola de Google Cast
-    const APP_ID = 'AAA48312'; 
+    // ⚠️ REEMPLAZAR CON TU APP ID DE LA CONSOLA DE GOOGLE
+    const APPLICATION_ID = 'AAA48312'; 
 
     let remotePlayer, remoteController;
 
+    // Callback global requerido por la librería de Cast
     window['__onGCastApiAvailable'] = function(isAvailable) {
-      if (!isAvailable) return;
+      if (!isAvailable) {
+        console.warn('Google Cast API no está disponible (¿Estás en Chrome?)');
+        return;
+      }
 
-      cast.framework.CastContext.getInstance().setOptions({
-        receiverApplicationId: APP_ID,
+      // 1. Inicializar el Contexto
+      const context = cast.framework.CastContext.getInstance();
+      
+      context.setOptions({
+        receiverApplicationId: APPLICATION_ID,
         autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
       });
 
+      // 2. Inicializar Controladores Remotos (para sincronizar UI automáticamente)
       remotePlayer = new cast.framework.RemotePlayer();
       remoteController = new cast.framework.RemotePlayerController(remotePlayer);
 
-      // Listener de estado de conexión
-      remoteController.addEventListener(cast.framework.RemotePlayerEventType.IS_CONNECTED_CHANGED, () => {
-        const connected = remotePlayer.isConnected;
-        document.getElementById('castStatus').textContent = connected ? 'Conectado' : 'Desconectado';
-        document.getElementById('loadBtn').disabled = !connected;
+      // 3. Listener de Eventos de Conexión
+      remoteController.addEventListener(cast.framework.RemotePlayerEventType.IS_CONNECTED_CHANGED, function() {
+        updateUI(remotePlayer.isConnected);
       });
+      
+      // Comprobar estado inicial por si ya estaba conectado (page refresh)
+      updateUI(remotePlayer.isConnected);
     };
 
+    // Función para manejar la UI según estado
+    function updateUI(isConnected) {
+        const statusElem = document.getElementById('castStatus');
+        const loadBtn = document.getElementById('loadBtn');
+        const connectBtn = document.getElementById('connectBtn');
+
+        if (isConnected) {
+            statusElem.textContent = 'Conectado';
+            statusElem.className = 'status-connected';
+            loadBtn.disabled = false;
+            connectBtn.textContent = 'Desconectar';
+        } else {
+            statusElem.textContent = 'Desconectado';
+            statusElem.className = 'status-disconnected';
+            loadBtn.disabled = true;
+            connectBtn.textContent = '📡 Conectar Manualmente';
+        }
+    }
+
+    // --- LÓGICA DEL BOTÓN MANUAL ---
+    document.getElementById('connectBtn').addEventListener('click', () => {
+        const context = cast.framework.CastContext.getInstance();
+        
+        if (context.getCastState() === cast.framework.CastState.CONNECTED) {
+            // Si ya está conectado, desconectamos
+            context.endCurrentSession(true);
+        } else {
+            // Si no, pedimos sesión (esto abre el popup nativo de Chrome)
+            context.requestSession().then(() => {
+                console.log('Sesión iniciada correctamente');
+            }).catch((e) => {
+                if (e !== 'cancel') {
+                    console.error('Error al solicitar sesión:', e);
+                }
+            });
+        }
+    });
+
+    // --- LÓGICA DE CARGA DE MEDIA (DASH + ClearKey) ---
     async function loadMedia() {
       const session = cast.framework.CastContext.getInstance().getCurrentSession();
-      if (!session) return alert('Conecta al Chromecast primero');
+      if (!session) return;
 
       const url = document.getElementById('mpdInput').value;
-      const keyId = document.getElementById('keyIdInput').value;
-      const key = document.getElementById('keyInput').value;
+      const keyId = document.getElementById('keyIdInput').value.trim();
+      const key = document.getElementById('keyInput').value.trim();
 
       const mediaInfo = new chrome.cast.media.MediaInfo(url, 'application/dash+xml');
       
-      // Enviamos las llaves dentro de customData
-      mediaInfo.customData = {
-        license: {
-          keys: { [keyId]: key }
-        }
-      };
+      // Metadata (Opcional, para que se vea bonito en la pantalla de carga)
+      mediaInfo.metadata = new chrome.cast.media.GenericMediaMetadata();
+      mediaInfo.metadata.title = "Stream Seguro";
+      mediaInfo.metadata.subtitle = "DASH + ClearKey";
+
+      // Construcción del objeto customData para enviar las llaves
+      if(keyId && key) {
+          mediaInfo.customData = {
+            license: {
+              keys: { [keyId]: key }
+            }
+          };
+      }
 
       const request = new chrome.cast.media.LoadRequest(mediaInfo);
       request.autoplay = true;
 
       try {
         await session.loadMedia(request);
-        console.log('Carga exitosa');
+        console.log('Solicitud de carga enviada');
       } catch (e) {
-        console.error('Error al cargar media', e);
+        console.error('Error enviando media:', e);
       }
     }
 
-    // Event Listeners
+    // Bindings de botones
     document.getElementById('loadBtn').addEventListener('click', loadMedia);
-    
-    // Controles Básicos (usando remoteController para sincronización automática)
+
+    // Controles de reproducción (Usando el controller para mayor estabilidad)
     document.getElementById('playBtn').addEventListener('click', () => remoteController && remoteController.playOrPause());
     document.getElementById('pauseBtn').addEventListener('click', () => remoteController && remoteController.playOrPause());
     document.getElementById('stopBtn').addEventListener('click', () => remoteController && remoteController.stop());
     
     document.getElementById('seekBtn').addEventListener('click', () => {
-      if(remotePlayer) {
-        remotePlayer.currentTime = Number(document.getElementById('seekInput').value);
-        remoteController.seek();
-      }
+        if(remotePlayer) {
+            remotePlayer.currentTime = Number(document.getElementById('seekInput').value);
+            remoteController.seek();
+        }
     });
-    
+
     document.getElementById('volBtn').addEventListener('click', () => {
         if(remotePlayer) {
             remotePlayer.volumeLevel = Number(document.getElementById('volumeInput').value);
