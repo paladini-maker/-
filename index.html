@@ -1,40 +1,47 @@
+<!doctype html>
 <html lang="es">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Sender — Cast Web Sender (solo MPD)</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Sender — Cast Web Sender con UI</title>
   <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
-  <script>
-    const CONFIG = {
-      APP_ID: 'AAA48312',
-      MIME: 'application/dash+xml',
-      DEFAULT_MPD: 'https://cdn.cvattv.com.ar/live/c6eds/Canal7/SA_Live_dash_enc/Canal7.mpd'
-    };
+  <style>
+    body{font-family:sans-serif;margin:20px;background:#111;color:#eee}
+    button{margin:5px;padding:10px 20px;background:#2979ff;color:white;border:none;border-radius:4px;cursor:pointer}
+    input{width:60%;padding:8px;margin-right:5px}
+  </style>
+</head>
+<body>
+  <h2>Web Sender — Carga MPD a Chromecast</h2>
+  <input id="mpdInput" type="text" value="https://cdn.cvattv.com.ar/live/c6eds/Canal7/SA_Live_dash_enc/Canal7.mpd">
+  <button id="loadBtn">Cargar MPD</button>
 
-    // Inicializar CastContext según la doc
+  <script>
+    const CONFIG = { APP_ID: 'APP_ID', MIME: 'application/dash+xml' };
+
     window.addEventListener('load', () => {
       const ctx = cast.framework.CastContext.getInstance();
       ctx.setOptions({ receiverApplicationId: CONFIG.APP_ID, autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED });
     });
 
-    // Envía solo la URL del MPD. El receiver será responsable de aplicar ClearKeys.
-    function castLoad(mpdUrl = CONFIG.DEFAULT_MPD) {
+    document.getElementById('loadBtn').addEventListener('click', async () => {
+      const mpdUrl = document.getElementById('mpdInput').value;
       const session = cast.framework.CastContext.getInstance().getCurrentSession();
-      if (!session) return console.warn('No hay sesión Cast activa');
-      if (typeof mpdUrl !== 'string' || !mpdUrl.startsWith('http')) return console.error('MPD inválido');
+      if (!session) return alert('No hay sesión Cast activa');
+
+      // Cancelar media previa si existe
+      const currentMedia = session.getMediaSession();
+      if (currentMedia) {
+        try { await currentMedia.stop(); } catch(e) { console.warn('Error al detener media previa', e); }
+      }
 
       const mediaInfo = new chrome.cast.media.MediaInfo(mpdUrl, CONFIG.MIME);
       const request = new chrome.cast.media.LoadRequest(mediaInfo);
       request.autoplay = true;
       request.currentTime = 0;
 
-      // No enviar claves, metadatos sensibles ni EME desde el sender.
-      session.loadMedia(request).catch(e => console.error('Sender load error:', e));
-    }
-
-    // Exponer para pruebas desde la consola
-    window.castLoad = castLoad;
+      session.loadMedia(request).catch(e => console.error('Error load sender:', e));
+    });
   </script>
-</head>
-<body></body>
+</body>
 </html>
