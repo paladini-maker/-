@@ -1,69 +1,138 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>IPTV+ — Web Sender (Cast)</title>
-  <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
-  <style>
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;margin:24px}
-    input{width:70%;padding:8px;margin-right:8px}
-    button{padding:8px 12px}
-    #status{display:inline-block;margin-left:12px}
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Sender CAF IPTV</title>
+
+<script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
+
+<style>
+:root{--accent:#2979ff;--bg:#f7f8fb;--card:#fff}
+html,body{height:100%;margin:0;background:var(--bg);font-family:Inter,Arial,sans-serif}
+.wrap{max-width:760px;margin:36px auto;padding:18px;background:var(--card);border-radius:12px;box-shadow:0 6px 20px rgba(0,0,0,0.05);text-align:center}
+h2{margin:0 0 12px;font-size:1.25rem;color:#0f172a}
+.controls{display:flex;gap:12px;justify-content:center;align-items:center;flex-wrap:wrap}
+google-cast-button{--google-cast-button-width:36px;--google-cast-button-height:36px}
+button{background:var(--accent);color:#fff;border:0;padding:10px 16px;border-radius:8px;cursor:pointer;font-size:1rem}
+button:disabled{background:#cfcfcf;cursor:not-allowed}
+#status{margin-top:14px;padding:10px;border-radius:8px;background:#f1f5f9;color:#374151;font-weight:600}
+</style>
 </head>
 <body>
-  <h2>IPTV+ — Sender</h2>
-  <p>Pegá aquí la URL del MPD:</p>
-  <input id="mpd" placeholder="https://.../manifest.mpd" />
-  <button id="btn" disabled>Conectar / Enviar</button>
-  <span id="status">Cargando SDK...</span>
+<div class="wrap">
+  <h2>Sender CAF IPTV</h2>
+  <div class="controls">
+    <google-cast-button aria-label="Cast"></google-cast-button>
+    <button id="loadBtn" disabled>Cargar y reproducir</button>
+  </div>
+  <div id="status">Inicializando...</div>
+</div>
 
-  <script>
-    const APP_ID = 'AAA48312';
-    const btn = document.getElementById('btn');
-    const urlInput = document.getElementById('mpd');
-    const statusEl = document.getElementById('status');
+<!-- fragmento: sender (sustituir en tu index.html) -->
+<script>
+(function(){
+  const APP_ID = 'AAA48312'; // registrar y poner aquí
+  const MEDIA_URL = 'https://cdn.cvattv.com.ar/live/c6eds/Canal7/SA_Live_dash_enc/Canal7.mpd';
+  const CLEAR_KEYS = {
+    "cc8c82ac2ec7e9799527c29db7354e81": "cc4aae173dd2ef17ae26be3f7ae87662"
+  };
 
-    function status(t,c='black'){ statusEl.textContent=t; statusEl.style.color=c; }
+  const statusEl = document.getElementById('status');
+  const loadBtn = document.getElementById('loadBtn');
+  let inited = false;
 
-    function ensureCastReady(ms=5000){
-      return new Promise(r=>{
-        if(window.cast&&window.cast.framework) return r(true);
-        window.__onGCastApiAvailable = ok=>r(!!ok);
-        setTimeout(()=>r(!!(window.cast&&window.cast.framework)),ms);
+  function setStatus(text,color){ statusEl.textContent = text; statusEl.style.color = color||''; console.log('[sender]', text); }
+
+  function waitForCastApi(timeoutMs = 5000){
+    return new Promise(resolve=>{
+      if(window.__onGCastApiAvailable) { /* someone else set it */ }
+      const finish = (isAvailable) => resolve(!!isAvailable);
+      window.__onGCastApiAvailable = function(isAvailable){
+        finish(isAvailable);
+      };
+      // also check already-present
+      if(window.cast && window.cast.framework && cast.framework.CastContext) return resolve(true);
+      // fallback timeout
+      setTimeout(()=>resolve(!!(window.cast && window.cast.framework)), timeoutMs);
+    });
+  }
+
+  async function init(){
+    if(inited) return;
+    const ok = await waitForCastApi(7000);
+    if(!ok){ setStatus('SDK de Cast no disponible', 'crimson'); loadBtn.disabled = true; return; }
+
+    try{
+      const context = cast.framework.CastContext.getInstance();
+      context.setOptions({ receiverApplicationId: APP_ID });
+      context.addEventListener(cast.framework.CastContextEventType.SESSION_STATE_CHANGED,(e)=>{
+        const s = e.sessionState;
+        console.log('[cast] session state', s);
+        if(s === cast.framework.SessionState.SESSION_STARTED) setStatus('Sesión iniciada', 'green');
+        else if(s === cast.framework.SessionState.SESSION_RESUMED) setStatus('Sesión reanudada', 'green');
+        else if(s === cast.framework.SessionState.SESSION_ENDED) setStatus('Sesión finalizada', 'grey');
       });
-    }
 
-    async function init(){
-      if(!await ensureCastReady()) return status('Cast SDK no disponible','crimson');
-      const ctx = cast.framework.CastContext.getInstance();
-      ctx.setOptions({ receiverApplicationId:APP_ID, autoJoinPolicy:chrome.cast.AutoJoinPolicy.TAB_AND_ORIGIN_SCOPED });
-      ctx.addEventListener(cast.framework.CastContextEventType.SESSION_STATE_CHANGED,e=>{
-        if(e.sessionState===cast.framework.SessionState.SESSION_STARTED) status('Conectado','green');
-        if(e.sessionState===cast.framework.SessionState.SESSION_ENDED) status('Sesión terminada','gray');
-      });
-      btn.disabled=false;
-      btn.onclick=()=>send(ctx);
-      status('Listo','green');
+      loadBtn.disabled = false;
+      loadBtn.addEventListener('click', ()=>onLoadClick(context));
+      setStatus('Listo', 'green');
+      inited = true;
+    }catch(err){
+      console.error('init error', err);
+      setStatus('Error inicializando SDK de Cast', 'crimson');
+      loadBtn.disabled = true;
     }
+  }
 
-    async function send(ctx){
-      const mpd=urlInput.value.trim();
-      if(!mpd) return status('Pegá un MPD válido','crimson');
-      let s=ctx.getCurrentSession();
-      if(!s){ try{s=await ctx.requestSession();}catch(e){return status('No se pudo abrir sesión','crimson');} }
-      const info=new chrome.cast.media.MediaInfo(mpd,'application/dash+xml');
-      info.metadata=new chrome.cast.media.GenericMediaMetadata();
-      info.metadata.title='IPTV+ – Live';
-      info.customData={ app:'iptv-plus', sentAt:Date.now() };
-      const req=new chrome.cast.media.LoadRequest(info);
-      req.autoplay=true;
-      try{ await s.loadMedia(req); status('En reproducción','green'); }
-      catch(e){ status('Error al cargar media','crimson'); }
+  async function requestSession(context){
+    try{
+      return await context.requestSession();
+    }catch(e){
+      console.error('requestSession failed', e);
+      return null;
     }
+  }
 
-    init();
-  </script>
+  function buildLoadRequest(){
+    const mediaInfo = new chrome.cast.media.MediaInfo(MEDIA_URL, 'application/dash+xml');
+    // Para live MPD
+    mediaInfo.streamType = chrome.cast.media.StreamType.LIVE; // <--- importante si es live
+    const metadata = new chrome.cast.media.MediaMetadata(chrome.cast.media.MetadataType.MOVIE);
+    metadata.title = "TV Pública (ClearKey)";
+    mediaInfo.metadata = metadata;
+    mediaInfo.customData = { shaka: { drm: { clearKeys: CLEAR_KEYS } } };
+
+    const request = new chrome.cast.media.LoadRequest(mediaInfo);
+    request.autoplay = true;
+    request.playPosition = 0;
+    return request;
+  }
+
+  async function onLoadClick(context){
+    setStatus('Preparando...', 'orange');
+    let session = context.getCurrentSession && context.getCurrentSession();
+    if(!session){
+      setStatus('Solicitando sesión...', 'orange');
+      session = await requestSession(context);
+    }
+    if(!session){ setStatus('No se pudo establecer sesión', 'crimson'); return; }
+
+    try{
+      console.log('load request', MEDIA_URL);
+      const result = await session.loadMedia(buildLoadRequest());
+      console.log('load result', result);
+      setStatus('Reproduciendo en el dispositivo', 'green');
+    }catch(e){
+      console.error('Error en session.loadMedia', e);
+      setStatus('Error al cargar media: ' + (e && e.description ? e.description : e.message || e), 'crimson');
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', init);
+  // si el SDK ya cargó
+  if(window.cast && window.cast.framework) init();
+})();
+</script>
 </body>
 </html>
