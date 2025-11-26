@@ -1,40 +1,97 @@
-
-<!-- receiver/index.html (mejorado) -->
 <!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Receiver CAF — Shaka ClearKey</title>
-<script src="https://www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Custom Receiver — Shaka ClearKey</title>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.15.12/shaka-player.compiled.js"></script>
-<style>html,body{margin:0;height:100%;background:#000} video{width:100%;height:100%;background:#000}</style>
+<script src="https://www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
+
+<style>
+  html,body{margin:0;height:100%;background:#000}
+  video{width:100%;height:100%;background:#000}
+</style>
 </head>
 <body>
-<video id="video" autoplay playsinline></video>
-<script>
-(async function(){
-  // Opciones del receiver
-  const options = new cast.framework.CastReceiverOptions();
-  options.maxInactivity = 600; // extender timeout durante debug si querés
-  const context = cast.framework.CastReceiverContext.getInstance(options);
 
-  // Instancio player Shaka
+<video id="video" autoplay></video>
+
+<script>
+(async () => {
+
+  //---------------------------------------------------------------------------
+  // 🔐 CLEARKEYS PRIVADAS — SOLO EN EL RECEIVER
+  //---------------------------------------------------------------------------
+
+  const CLEARKEYS = {
+    "https://cdn.cvattv.com.ar/live/c6eds/Canal7/SA_Live_dash_enc/Canal7.mpd": {
+      "cc8c82ac2ec7e9799527c29db7354e81": "cc4aae173dd2ef17ae26be3f7ae87662"
+    },
+
+    // EJEMPLO para agregar más canales:
+    // "https://otro.mpd": {
+    //   "KEYID": "KEY"
+    // }
+  };
+
+  //---------------------------------------------------------------------------
+  // CAST + SHAKA SETUP
+  //---------------------------------------------------------------------------
+
   const video = document.getElementById('video');
   const player = new shaka.Player(video);
 
-  player.addEventListener('error', e => {
-    console.error('Shaka error', e.detail);
-    // opcional: notificar al sender o setear estado
-  });
-
-  // Logger receiver
-  cast.framework.CastReceiverContext.getInstance().addCustomMessageListener('urn:x-cast:com.example.debug', (data) => {
-    console.log('custom message', data);
-  });
-
+  const context = cast.framework.CastReceiverContext.getInstance();
   const manager = context.getPlayerManager();
 
+  // Errores de Shaka
+  player.addEventListener('error', e => console.error('Shaka error:', e.detail));
+
+  // Cuando el sender envía un LOAD
+  manager.setMessageInterceptor(
+    cast.framework.messages.MessageType.LOAD,
+    async request => {
+
+      const url = request.media.contentId;
+
+      console.log("Cargando media:", url);
+
+      // Buscar claves del canal solicitado
+      const keys = CLEARKEYS[url];
+
+      if (keys) {
+        console.log("Clave encontrada para", url);
+
+        player.configure({
+          drm: {
+            clearKeys: keys
+          }
+        });
+      } else {
+        console.warn("No hay claves para:", url);
+      }
+
+      // Reemplaza el sistema de carga interno del CAF por Shaka
+      try {
+        await player.load(url);
+        console.log("Reproducción iniciada");
+      } catch(err) {
+        console.error("Error cargando MPD:", err);
+      }
+
+      // Cancelar que CAF intente manejar la carga tradicional
+      return null;
+    }
+  );
+
+  context.start();
+
+})();
+</script>
+
+</body>
+</html>
   // Handler para LOAD (intercepta la carga desde el sender)
   manager.setMessageInterceptor(cast.framework.messages.MessageType.LOAD, async (loadRequestData) => {
     try{
