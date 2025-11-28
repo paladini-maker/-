@@ -1,78 +1,44 @@
 <!DOCTYPE html>
-<html lang="es">
+<html>
 <head>
-  <meta charset="utf-8">
-  <title>Receiver Nativo CAF + ClearKey</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Custom Receiver - Shaka Player HLS</title>
   <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
   <style>
-    body { margin: 0; background-color: #000; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; }
-    /* Elemento de video "castMediaElement" es manejado por CAF */
-    cast-media-player {
+    html, body {
+      margin: 0;
+      padding: 0;
       width: 100%;
       height: 100%;
-      --splash-image: url(''); /* Puedes poner un logo aquí */
+      background: #000;
+      color: #fff;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-family: sans-serif;
+    }
+    .logo {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      font-size: 20px;
+      opacity: 0.8;
     }
   </style>
 </head>
 <body>
+  <div class="logo">📡 Shaka Receiver</div>
   <cast-media-player></cast-media-player>
-
   <script>
     const context = cast.framework.CastReceiverContext.getInstance();
-    const playerManager = context.getPlayerManager();
-
-    // 1. Interceptor de Configuración de Reproducción (PlaybackConfig)
-    // Aquí es donde inyectamos las llaves DRM nativamente.
-    playerManager.setMediaPlaybackInfoHandler((loadRequest, playbackConfig) => {
-      
-      const customData = loadRequest.media.customData;
-
-      if (customData && customData.license && customData.license.keys) {
-        // Configuramos la protección nativa de CAF
-        playbackConfig.protectionSystem = cast.framework.ContentProtection.CLEARKEY;
-        playbackConfig.licenseUrl = ''; // No necesario para ClearKey directo, pero requerido por la firma
-        
-        // Asignamos las llaves recibidas del Sender
-        playbackConfig.licenseCustomData = customData.license.keys; 
-        
-        // NOTA: CAF espera un formato específico para ClearKey. 
-        // A veces es necesario inyectar la configuración directamente en shakaConfig si CAF standard no lo toma.
-        // Hacemos un override a la configuración interna de Shaka que usa CAF:
-        
-        playbackConfig.shakaConfig = {
-          drm: {
-            clearKeys: customData.license.keys
-          }
-        };
-      }
-
-      return playbackConfig;
-    });
-
-    // 2. Interceptor de Mensajes (Opcional, para logs o validaciones)
-    playerManager.setMessageInterceptor(cast.framework.messages.MessageType.LOAD, loadRequestData => {
-      console.log('Recibiendo solicitud de carga:', loadRequestData);
-      
-      // Validar si viene contenido
-      if (!loadRequestData.media) {
-        const error = new cast.framework.messages.ErrorData(cast.framework.messages.ErrorType.LOAD_FAILED);
-        error.reason = cast.framework.messages.ErrorReason.INVALID_REQUEST;
-        return error;
-      }
-      
-      return loadRequestData;
-    });
-
-    // Debug events
-    playerManager.addEventListener(cast.framework.events.EventType.ERROR, (event) => {
-      console.error('Error detallado de reproducción:', event);
-    });
-
-    // Iniciar Receiver con opciones optimizadas para evitar desconexiones rápidas en debug
     const options = new cast.framework.CastReceiverOptions();
-    options.disableIdleTimeout = true; // Solo para desarrollo
-    
+
+    options.useShakaForHls = true;
+    options.shakaVersion = 'latest';
+
     context.start(options);
+    console.log("✅ Receiver iniciado. Esperando contenido HLS...");
   </script>
 </body>
 </html>
