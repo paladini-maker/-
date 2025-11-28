@@ -1,37 +1,32 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Google Cast Sender - M3U8</title>
-  <script type="text/javascript" src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Cast Sender HLS</title>
+
+  <script type="text/javascript"
+    src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1">
+  </script>
+
   <style>
-    body {
-      background-color: #111;
-      color: #fff;
+    body { background-color: #111; color: #fff;
       font-family: system-ui, sans-serif;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      height: 100vh;
-      margin: 0;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      height: 100vh; margin: 0;
     }
     input, button {
-      padding: 10px;
-      font-size: 16px;
-      border-radius: 6px;
-      border: none;
+      padding: 10px; font-size: 16px;
+      border-radius: 6px; border: none;
       margin: 5px;
     }
     input {
-      width: 80%;
-      max-width: 500px;
+      width: 80%; max-width: 500px;
       color: #000;
     }
     button {
-      background: #007aff;
-      color: white;
+      background: #007aff; color: white;
       cursor: pointer;
     }
     button:hover {
@@ -40,36 +35,44 @@
   </style>
 </head>
 <body>
-  <h1>🎬 Google Cast Web Sender</h1>
-  <p>Introduce una URL <code>.m3u8</code> y presiona “Cast”</p>
-  <input id="streamUrl" type="text" placeholder="https://example.com/live/stream.m3u8" />
+
+  <h1>Cast Web Sender</h1>
+  <p>Introduce URL HLS (.m3u8) y presiona Cast</p>
+  <input id="streamUrl" type="text" placeholder="https://ejemplo.com/stream.m3u8"/>
   <button id="castButton">Cast</button>
 
   <script>
-    const context = cast.framework.CastContext.getInstance();
-    context.setOptions({
-      receiverApplicationId: "AAA48312", // reemplaza con tu ID real
-      autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
-    });
-
-    document.getElementById("castButton").addEventListener("click", async () => {
-      const url = document.getElementById("streamUrl").value.trim();
-      if (!url.endsWith(".m3u8")) {
-        alert("Por favor introduce una URL válida que termine en .m3u8");
+    window['__onGCastApiAvailable'] = function(isAvailable) {
+      if (!isAvailable) {
+        console.error("Cast API no está disponible");
         return;
       }
+      const context = cast.framework.CastContext.getInstance();
+      context.setOptions({
+        receiverApplicationId: 'AAA48312',
+        autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
+      });
 
-      try {
-        const session = await context.requestSession();
-        const mediaInfo = new chrome.cast.media.MediaInfo(url, "application/x-mpegURL");
-        const request = new chrome.cast.media.LoadRequest(mediaInfo);
-        await session.loadMedia(request);
-        alert("✅ Transmisión iniciada en tu Chromecast");
-      } catch (err) {
-        console.error("Error al iniciar Cast:", err);
-        alert("❌ No se pudo iniciar Cast. Revisa la consola.");
-      }
-    });
+      const castButton = document.getElementById('castButton');
+      castButton.addEventListener('click', async () => {
+        const url = document.getElementById('streamUrl').value.trim();
+        if (!url) {
+          alert("Por favor ingresa una URL.");
+          return;
+        }
+        try {
+          const session = await context.requestSession();
+          const mediaInfo = new chrome.cast.media.MediaInfo(url, 'application/x-mpegURL');
+          const request = new chrome.cast.media.LoadRequest(mediaInfo);
+          await session.loadMedia(request);
+          console.log("Media cargada en Chromecast:", url);
+        } catch (err) {
+          console.error("Error al iniciar Cast:", err);
+          alert("No se pudo iniciar Cast. Ver consola.");
+        }
+      });
+    };
   </script>
+
 </body>
 </html>
