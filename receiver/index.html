@@ -2,34 +2,82 @@
 <html>
 <head>
   <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Custom Receiver HLS</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Custom Receiver - Shaka HLS (corregido)</title>
+
   <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
+
   <style>
     html, body { margin:0; padding:0; width:100%; height:100%; background:#000; color:#fff; }
     cast-media-player { width:100%; height:100%; }
+    #overlayLog { position:absolute; right:8px; top:8px; z-index:1000; font-family:monospace; background:#00000088; padding:6px; border-radius:6px; max-width:35%; white-space:pre-wrap; }
   </style>
 </head>
 <body>
+  <div id="overlayLog"></div>
   <cast-media-player></cast-media-player>
+
   <script>
+    const overlay = document.getElementById('overlayLog');
+    const LOG = (t, err) => {
+      const s = new Date().toISOString() + ' ' + (t || '');
+      overlay.textContent = s + '\n' + overlay.textContent;
+      if (err) console.error(t, err); else console.log(t);
+    };
+
     const context = cast.framework.CastReceiverContext.getInstance();
     const options = new cast.framework.CastReceiverOptions();
-    options.useShakaForHls = true;
-    // Opcional: define version fija si querés, por ejemplo options.shakaVersion = '4.15.12';
-    context.start(options);
 
-    // (Opcional) debug overlay:
-    context.addEventListener(
-      cast.framework.system.EventType.READY,
-      () => {
-        const logger = cast.debug.CastDebugLogger.getInstance();
-        logger.setEnabled(true);
-        logger.showDebugLogs(true);
-        logger.clearDebugLogs();
-        logger.logMessage('Receiver listo 🚀');
+    options.useShakaForHls = true;
+    // options.shakaVersion = '4.15.12'; // opcional
+
+    const playerManager = context.getPlayerManager();
+
+    // Interceptor de ejemplo: convierte contentId -> contentUrl si hace falta
+    playerManager.setMessageInterceptor(
+      cast.framework.messages.MessageType.LOAD,
+      (loadRequestData) => {
+        try {
+          LOG('INTERCEPTOR: LOAD recibido');
+
+          const media = loadRequestData.media || {};
+          // Si el sender envía contentId con la URL, traspasarla a contentUrl
+          if (media.contentId && !media.contentUrl) {
+            media.contentUrl = media.contentId;
+            LOG('Interceptor: contentId asignado a contentUrl -> ' + media.contentUrl);
+          }
+
+          // Validación mínima
+          if (!media.contentUrl) {
+            LOG('LOAD sin contentUrl - abortando', true);
+            return null; // aborta la carga
+          }
+
+          loadRequestData.media = media;
+          return loadRequestData;
+        } catch (e) {
+          LOG('Interceptor fallo: ' + (e && e.message), true);
+          return loadRequestData;
+        }
       }
     );
+
+    // Manejo de errores del player
+    playerManager.addEventListener(cast.framework.events.EventType.ERROR, (e) => {
+      LOG('Player ERROR: ' + JSON.stringify(e), true);
+    });
+
+    // Mostrar debug overlay cuando esté listo
+    context.addEventListener(cast.framework.system.EventType.READY, () => {
+      const logger = cast.debug.CastDebugLogger.getInstance();
+      logger.setEnabled(true);
+      logger.showDebugLogs(true);
+      logger.clearDebugLogs();
+      LOG('Receiver READY - debug habilitado');
+    });
+
+    context.start(options);
+    LOG('Receiver iniciado. useShakaForHls=' + options.useShakaForHls);
   </script>
 </body>
 </html>
