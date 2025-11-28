@@ -1,83 +1,72 @@
 <!DOCTYPE html>
-<html>
+<html lang="es">
 <head>
-  <meta charset="utf-8"/>
+  <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Custom Receiver - Shaka HLS (corregido)</title>
+  <title>Custom Receiver - HLS con CAF v3 + Shaka</title>
 
+  <!-- Cargar el SDK de receiver; omitir protocolo para compatibilidad HTTP/HTTPS -->
   <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
+  <!-- (Opcional) Logger de debug para desarrollo -->
+  <script src="//www.gstatic.com/cast/sdk/libs/devtools/debug_layer/caf_receiver_logger.js"></script>
 
   <style>
-    html, body { margin:0; padding:0; width:100%; height:100%; background:#000; color:#fff; }
+    html, body { margin: 0; padding: 0; width:100%; height:100%; background: #000; color: #fff; }
     cast-media-player { width:100%; height:100%; }
-    #overlayLog { position:absolute; right:8px; top:8px; z-index:1000; font-family:monospace; background:#00000088; padding:6px; border-radius:6px; max-width:35%; white-space:pre-wrap; }
   </style>
 </head>
 <body>
-  <div id="overlayLog"></div>
+  <!-- Elemento de player predeterminado de CAF -->
   <cast-media-player></cast-media-player>
 
   <script>
-    const overlay = document.getElementById('overlayLog');
-    const LOG = (t, err) => {
-      const s = new Date().toISOString() + ' ' + (t || '');
-      overlay.textContent = s + '\n' + overlay.textContent;
-      if (err) console.error(t, err); else console.log(t);
-    };
-
     const context = cast.framework.CastReceiverContext.getInstance();
-    const options = new cast.framework.CastReceiverOptions();
-
-    options.useShakaForHls = true;
-    // options.shakaVersion = '4.15.12'; // opcional
-
     const playerManager = context.getPlayerManager();
+    const castDebugLogger = cast.debug.CastDebugLogger.getInstance();
 
-    // Interceptor de ejemplo: convierte contentId -> contentUrl si hace falta
+    // Habilitar overlay de debug (solo durante desarrollo)
+    context.addEventListener(cast.framework.system.EventType.READY, () => {
+      if (!castDebugLogger.debugOverlayElement_) {
+        castDebugLogger.setEnabled(true);
+        castDebugLogger.loggerLevelByEvents = {
+          'cast.framework.events.category.CORE': cast.framework.LoggerLevel.INFO,
+          'cast.framework.events.EventType.MEDIA_STATUS': cast.framework.LoggerLevel.DEBUG
+        };
+      }
+    });
+
+    // Interceptor de LOAD — útil si querés modificar contentId, contentUrl, metadata, etc.
     playerManager.setMessageInterceptor(
       cast.framework.messages.MessageType.LOAD,
       (loadRequestData) => {
-        try {
-          LOG('INTERCEPTOR: LOAD recibido');
-
-          const media = loadRequestData.media || {};
-          // Si el sender envía contentId con la URL, traspasarla a contentUrl
-          if (media.contentId && !media.contentUrl) {
-            media.contentUrl = media.contentId;
-            LOG('Interceptor: contentId asignado a contentUrl -> ' + media.contentUrl);
-          }
-
-          // Validación mínima
-          if (!media.contentUrl) {
-            LOG('LOAD sin contentUrl - abortando', true);
-            return null; // aborta la carga
-          }
-
-          loadRequestData.media = media;
-          return loadRequestData;
-        } catch (e) {
-          LOG('Interceptor fallo: ' + (e && e.message), true);
-          return loadRequestData;
+        const media = loadRequestData.media;
+        if (!media) {
+          return loadRequestData;  // dejar pasar
         }
+
+        // Si la request usa contentId y querés convertirlo a contentUrl:
+        if (media.contentId && !media.contentUrl) {
+          media.contentUrl = media.contentId;
+        }
+
+        // Asumir stream HLS
+        media.contentType = 'application/x-mpegurl';
+        // Si los segmentos HLS están en CMAF / fMP4:
+        media.hlsSegmentFormat = cast.framework.messages.HlsSegmentFormat.FMP4;
+        media.hlsVideoSegmentFormat = cast.framework.messages.HlsVideoSegmentFormat.FMP4;
+
+        loadRequestData.media = media;
+        return loadRequestData;
       }
     );
 
-    // Manejo de errores del player
-    playerManager.addEventListener(cast.framework.events.EventType.ERROR, (e) => {
-      LOG('Player ERROR: ' + JSON.stringify(e), true);
-    });
-
-    // Mostrar debug overlay cuando esté listo
-    context.addEventListener(cast.framework.system.EventType.READY, () => {
-      const logger = cast.debug.CastDebugLogger.getInstance();
-      logger.setEnabled(true);
-      logger.showDebugLogs(true);
-      logger.clearDebugLogs();
-      LOG('Receiver READY - debug habilitado');
-    });
+    // Opciones de receiver: usar Shaka Player para HLS (por defecto en CAF v3 desde Nov 2025)
+    const options = new cast.framework.CastReceiverOptions();
+    options.useShakaForHls = true;
+    // (Opcional) fijar versión de Shaka — no es necesario salvo que tengas un requisito específico
+    // options.shakaVersion = '4.15.12';
 
     context.start(options);
-    LOG('Receiver iniciado. useShakaForHls=' + options.useShakaForHls);
   </script>
 </body>
 </html>
