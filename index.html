@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Cast Sender - HLS</title>
+  <title>Cast Sender - HLS (corregido)</title>
 
   <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
 
@@ -16,7 +16,7 @@
   </style>
 </head>
 <body>
-  <h2>Cast Sender HLS</h2>
+  <h2>Cast Sender HLS (corregido)</h2>
   <input id="streamUrl" placeholder="https://example.com/stream.m3u8" />
   <div>
     <button id="castBtn">Cast</button>
@@ -32,76 +32,134 @@
     if (isError) console.error(msg); else console.log(msg);
   };
 
-  // Inicialización segura cuando la API esté disponible
+  // Configuración: reemplazar por tu App ID (si no quieres custom receiver usa 'CC1AD845')
+  const APP_ID = 'AAA48312'; // <-- reemplazar por App ID real
+
+  // Reintento sencillo: espera hasta 'maxAttempts' veces por session
+  const waitForSession = async (context, maxAttempts = 6, delayMs = 300) => {
+    for (let i = 0; i < maxAttempts; i++) {
+      const s = context.getCurrentSession();
+      if (s) return s;
+      await new Promise(r => setTimeout(r, delayMs));
+    }
+    return null;
+  };
+
   window['__onGCastApiAvailable'] = function(isAvailable) {
     if (!isAvailable) {
       L('Cast API no disponible', true);
       return;
     }
-
     L('Cast API disponible');
 
     const context = cast.framework.CastContext.getInstance();
     context.setOptions({
-      receiverApplicationId: 'AAA48312', // <-- usar App ID registrado
+      // Si usás Default Media Receiver para pruebas rápidas: 'CC1AD845'
+      receiverApplicationId: APP_ID,
       autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
     });
+
+    // Escuchar cambios de estado de sesión: importante para evitar usar session antes de tiempo
+    context.addEventListener(
+      cast.framework.CastContextEventType.SESSION_STATE_CHANGED,
+      async (e) => {
+        L('State: ' + e.sessionState);
+        if (e.sessionState === cast.framework.SessionState.SESSION_STARTED ||
+            e.sessionState === cast.framework.SessionState.SESSION_RESUMED) {
+          // Espera el objeto session de forma robusta
+          const sess = await waitForSession(context, 8, 250);
+          if (!sess) {
+            L('SESSION_STARTED pero getCurrentSession() devolvió null después de reintentos', true);
+            return;
+          }
+          L('Session estabilizada: ' + sess.getSessionId());
+        } else if (e.sessionState === cast.framework.SessionState.SESSION_ENDED) {
+          L('Sesión finalizada');
+        }
+      }
+    );
 
     const castBtn = document.getElementById('castBtn');
     const stopBtn = document.getElementById('stopBtn');
 
-    async function startCast() {
+    // Intentar iniciar sesión (abre el selector de dispositivos)
+    const startCast = async () => {
       const url = document.getElementById('streamUrl').value.trim();
       if (!url) { L('Ingresa una URL válida', true); return; }
+
       try {
         L('Solicitando sesión Cast...');
-        const session = await context.requestSession();
-        L('Sesión iniciada: ' + session.getSessionId());
+        const sessionPromise = context.requestSession();
 
-        const metadata = new chrome.cast.media.GenericMediaMetadata();
-        metadata.title = url.split('/').pop();
+        // Podés mostrar UI mientras el usuario elige dispositivo
+        const session = await sessionPromise;
+        if (!session) {
+          // A veces requestSession resuelve a null por cancel o error en navegadores particulares
+          L('La solicitud de sesión resolvió null', true);
+          return;
+        }
+
+        L('Sesión iniciada (requestSession resolvió). Id: ' + (session.getSessionId ? session.getSessionId() : '[sin getSessionId]'));
+
+        // Ahora llamamos a loadMedia de forma segura usando getCurrentSession()
+        await safeLoadMedia(context, url);
+
+      } catch (err) {
+        // Distinguimos cancel (usuario cerró selector) vs otros errores
+        const msg = (err && err.message) ? err.message : String(err);
+        if (msg.toLowerCase().includes('cancel')) {
+          L('Solicitud de sesión cancelada por el usuario', false);
+        } else {
+          L('Error al solicitar sesión: ' + msg, true);
+        }
+      }
+    };
+
+    // Carga de media usando la session ya estabilizada
+    const safeLoadMedia = async (context, url) => {
+      try {
+        // Espera hasta obtener currentSession (por si SESSION_STARTED llegó pero objeto aún no está listo)
+        const session = await waitForSession(context, 8, 250);
+        if (!session) {
+          L('No se pudo obtener la sesión para cargar media', true);
+          return;
+        }
 
         const mediaInfo = new chrome.cast.media.MediaInfo(url, 'application/x-mpegURL');
+        const metadata = new chrome.cast.media.GenericMediaMetadata();
+        metadata.title = url.split('/').pop();
         mediaInfo.metadata = metadata;
 
-        // Opciones adicionales: startTime, autoplay
         const request = new chrome.cast.media.LoadRequest(mediaInfo);
         request.autoplay = true;
         request.currentTime = 0;
 
-        L('Cargando media en receptor...');
-        session.loadMedia(request).then(
-          () => L('Media cargada correctamente en receptor'),
-          (err) => {
-            L('Error al cargar media: ' + JSON.stringify(err), true);
-            // Si falla aquí, revisar CORS y App ID
-          }
-        );
+        L('Cargando media en receptor: ' + url);
+        await session.loadMedia(request);
+        L('Media cargada correctamente en receptor');
       } catch (e) {
-        L('Error al solicitar sesión: ' + (e.message || e), true);
+        const em = (e && e.message) ? e.message : JSON.stringify(e);
+        L('Error cargando media: ' + em, true);
       }
-    }
+    };
 
-    async function stopCast() {
+    // Terminar sesión
+    const stopCast = async () => {
       try {
         const session = context.getCurrentSession();
         if (!session) { L('No hay sesión activa', true); return; }
         await session.endSession(true);
-        L('Sesión finalizada');
+        L('Sesión finalizada por sender');
       } catch (e) {
-        L('Error al finalizar sesión: ' + (e.message || e), true);
+        L('Error al finalizar sesión: ' + (e && e.message ? e.message : e), true);
       }
-    }
+    };
 
     castBtn.onclick = startCast;
     stopBtn.onclick = stopCast;
-
-    // Estado del contexto para depuración
-    context.addEventListener(
-      cast.framework.CastContextEventType.SESSION_STATE_CHANGED,
-      (e) => L('State: ' + e.sessionState)
-    );
   };
 </script>
 </body>
-</html>
+  </html>
+      receiverApplicationId: '', // <-- usar App ID registrado
+      
