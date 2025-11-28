@@ -1,78 +1,107 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Cast Sender HLS</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Cast Sender - HLS</title>
 
-  <script type="text/javascript"
-    src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1">
-  </script>
+  <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
 
   <style>
-    body { background-color: #111; color: #fff;
-      font-family: system-ui, sans-serif;
-      display: flex; flex-direction: column;
-      align-items: center; justify-content: center;
-      height: 100vh; margin: 0;
-    }
-    input, button {
-      padding: 10px; font-size: 16px;
-      border-radius: 6px; border: none;
-      margin: 5px;
-    }
-    input {
-      width: 80%; max-width: 500px;
-      color: #000;
-    }
-    button {
-      background: #007aff; color: white;
-      cursor: pointer;
-    }
-    button:hover {
-      background: #005bd1;
-    }
+    body { background:#111; color:#fff; font-family:system-ui, sans-serif; margin:0; padding:22px; }
+    input, button { padding:10px; font-size:15px; border-radius:6px; border:none; margin:6px 0; }
+    input { width: 100%; max-width:700px; color:#000; }
+    #log { margin-top:12px; background:#00000066; padding:8px; border-radius:6px; max-width:700px; white-space:pre-wrap; font-family:monospace; font-size:13px; }
+    .error { color:#ff8080; }
   </style>
 </head>
 <body>
+  <h2>Cast Sender HLS</h2>
+  <input id="streamUrl" placeholder="https://example.com/stream.m3u8" />
+  <div>
+    <button id="castBtn">Cast</button>
+    <button id="stopBtn">Stop</button>
+  </div>
+  <div id="log" aria-live="polite"></div>
 
-  <h1>Cast Web Sender</h1>
-  <p>Introduce URL HLS (.m3u8) y presiona Cast</p>
-  <input id="streamUrl" type="text" placeholder="https://ejemplo.com/stream.m3u8"/>
-  <button id="castButton">Cast</button>
+<script>
+  const L = (msg, isError) => {
+    const el = document.getElementById('log');
+    const prefix = new Date().toISOString() + ' ';
+    el.textContent = prefix + msg + '\n' + el.textContent;
+    if (isError) console.error(msg); else console.log(msg);
+  };
 
-  <script>
-    window['__onGCastApiAvailable'] = function(isAvailable) {
-      if (!isAvailable) {
-        console.error("Cast API no está disponible");
-        return;
+  // Inicialización segura cuando la API esté disponible
+  window['__onGCastApiAvailable'] = function(isAvailable) {
+    if (!isAvailable) {
+      L('Cast API no disponible', true);
+      return;
+    }
+
+    L('Cast API disponible');
+
+    const context = cast.framework.CastContext.getInstance();
+    context.setOptions({
+      receiverApplicationId: 'AAA48312', // <-- usar App ID registrado
+      autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
+    });
+
+    const castBtn = document.getElementById('castBtn');
+    const stopBtn = document.getElementById('stopBtn');
+
+    async function startCast() {
+      const url = document.getElementById('streamUrl').value.trim();
+      if (!url) { L('Ingresa una URL válida', true); return; }
+      try {
+        L('Solicitando sesión Cast...');
+        const session = await context.requestSession();
+        L('Sesión iniciada: ' + session.getSessionId());
+
+        const metadata = new chrome.cast.media.GenericMediaMetadata();
+        metadata.title = url.split('/').pop();
+
+        const mediaInfo = new chrome.cast.media.MediaInfo(url, 'application/x-mpegURL');
+        mediaInfo.metadata = metadata;
+
+        // Opciones adicionales: startTime, autoplay
+        const request = new chrome.cast.media.LoadRequest(mediaInfo);
+        request.autoplay = true;
+        request.currentTime = 0;
+
+        L('Cargando media en receptor...');
+        session.loadMedia(request).then(
+          () => L('Media cargada correctamente en receptor'),
+          (err) => {
+            L('Error al cargar media: ' + JSON.stringify(err), true);
+            // Si falla aquí, revisar CORS y App ID
+          }
+        );
+      } catch (e) {
+        L('Error al solicitar sesión: ' + (e.message || e), true);
       }
-      const context = cast.framework.CastContext.getInstance();
-      context.setOptions({
-        receiverApplicationId: 'AAA48312',
-        autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
-      });
+    }
 
-      const castButton = document.getElementById('castButton');
-      castButton.addEventListener('click', async () => {
-        const url = document.getElementById('streamUrl').value.trim();
-        if (!url) {
-          alert("Por favor ingresa una URL.");
-          return;
-        }
-        try {
-          const session = await context.requestSession();
-          const mediaInfo = new chrome.cast.media.MediaInfo(url, 'application/x-mpegURL');
-          const request = new chrome.cast.media.LoadRequest(mediaInfo);
-          await session.loadMedia(request);
-          console.log("Media cargada en Chromecast:", url);
-        } catch (err) {
-          console.error("Error al iniciar Cast:", err);
-          alert("No se pudo iniciar Cast. Ver consola.");
-        }
-      });
-    };
-  </script>
+    async function stopCast() {
+      try {
+        const session = context.getCurrentSession();
+        if (!session) { L('No hay sesión activa', true); return; }
+        await session.endSession(true);
+        L('Sesión finalizada');
+      } catch (e) {
+        L('Error al finalizar sesión: ' + (e.message || e), true);
+      }
+    }
 
+    castBtn.onclick = startCast;
+    stopBtn.onclick = stopCast;
+
+    // Estado del contexto para depuración
+    context.addEventListener(
+      cast.framework.CastContextEventType.SESSION_STATE_CHANGED,
+      (e) => L('State: ' + e.sessionState)
+    );
+  };
+</script>
 </body>
 </html>
