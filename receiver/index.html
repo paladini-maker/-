@@ -1,44 +1,35 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Custom Receiver - Shaka Player HLS</title>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Custom Receiver HLS</title>
   <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
   <style>
-    html, body {
-      margin: 0;
-      padding: 0;
-      width: 100%;
-      height: 100%;
-      background: #000;
-      color: #fff;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      font-family: sans-serif;
-    }
-    .logo {
-      position: absolute;
-      top: 20px;
-      left: 20px;
-      font-size: 20px;
-      opacity: 0.8;
-    }
+    html, body { margin:0; padding:0; width:100%; height:100%; background:#000; color:#fff; }
+    cast-media-player { width:100%; height:100%; }
   </style>
 </head>
 <body>
-  <div class="logo">📡 Shaka Receiver</div>
   <cast-media-player></cast-media-player>
   <script>
     const context = cast.framework.CastReceiverContext.getInstance();
     const options = new cast.framework.CastReceiverOptions();
-
     options.useShakaForHls = true;
-    options.shakaVersion = 'latest';
-
+    // Opcional: define version fija si querés, por ejemplo options.shakaVersion = '4.15.12';
     context.start(options);
-    console.log("✅ Receiver iniciado. Esperando contenido HLS...");
+
+    // (Opcional) debug overlay:
+    context.addEventListener(
+      cast.framework.system.EventType.READY,
+      () => {
+        const logger = cast.debug.CastDebugLogger.getInstance();
+        logger.setEnabled(true);
+        logger.showDebugLogs(true);
+        logger.clearDebugLogs();
+        logger.logMessage('Receiver listo 🚀');
+      }
+    );
   </script>
 </body>
 </html>
