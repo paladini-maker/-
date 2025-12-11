@@ -1,72 +1,118 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Custom Receiver - HLS con CAF v3 + Shaka</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chromecast Shaka HLS Receiver (GHL)</title>
+    <!-- Incluir Tailwind CSS para el overlay de carga -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: #000;
+            margin: 0;
+            padding: 0;
+            width: 100vw;
+            height: 100vh;
+        }
+        /* CAF gestiona la reproducción en este elemento */
+        #receiver-video {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            display: block;
+        }
 
-  <!-- Cargar el SDK de receiver; omitir protocolo para compatibilidad HTTP/HTTPS -->
-  <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
-  <!-- (Opcional) Logger de debug para desarrollo -->
-  <script src="//www.gstatic.com/cast/sdk/libs/devtools/debug_layer/caf_receiver_logger.js"></script>
-
-  <style>
-    html, body { margin: 0; padding: 0; width:100%; height:100%; background: #000; color: #fff; }
-    cast-media-player { width:100%; height:100%; }
-  </style>
+        /* Overlay para mensajes de estado y carga */
+        .loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+        }
+    </style>
 </head>
 <body>
-  <!-- Elemento de player predeterminado de CAF -->
-  <cast-media-player></cast-media-player>
 
-  <script>
-    const context = cast.framework.CastReceiverContext.getInstance();
-    const playerManager = context.getPlayerManager();
-    const castDebugLogger = cast.debug.CastDebugLogger.getInstance();
+    <!-- Elemento de video principal -->
+    <video id="receiver-video" controls></video>
 
-    // Habilitar overlay de debug (solo durante desarrollo)
-    context.addEventListener(cast.framework.system.EventType.READY, () => {
-      if (!castDebugLogger.debugOverlayElement_) {
-        castDebugLogger.setEnabled(true);
-        castDebugLogger.loggerLevelByEvents = {
-          'cast.framework.events.category.CORE': cast.framework.LoggerLevel.INFO,
-          'cast.framework.events.EventType.MEDIA_STATUS': cast.framework.LoggerLevel.DEBUG
-        };
-      }
-    });
+    <!-- Overlay de carga/mensaje -->
+    <div id="loading-spinner" class="loading-overlay">
+        <svg class="animate-spin h-10 w-10 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+        <p class="mt-4 text-xl font-semibold">Cargando aplicación de Receptor...</p>
+    </div>
 
-    // Interceptor de LOAD — útil si querés modificar contentId, contentUrl, metadata, etc.
-    playerManager.setMessageInterceptor(
-      cast.framework.messages.MessageType.LOAD,
-      (loadRequestData) => {
-        const media = loadRequestData.media;
-        if (!media) {
-          return loadRequestData;  // dejar pasar
+    <!-- 1. SDK de Shaka Player (Google Hosted Libraries: 4.16.11) -->
+    <script src="https://ajax.googleapis.com/ajax/libs/shaka-player/4.16.11/shaka-player.compiled.js"></script>
+    
+    <!-- 2. SDK de Receiver de Google Cast (CAF 3.x) (Fuente oficial de Google Cast - Gstatic) -->
+    <script src="https://www.gstatic.com/cast/sdk/libs/caf/receiver/3.0.0/cast_receiver_framework.js"></script>
+
+    <script>
+        const videoElement = document.getElementById('receiver-video');
+        const loadingOverlay = document.getElementById('loading-spinner');
+
+        function setupReceiver() {
+            console.log('Iniciando la configuración del Receptor CAF con Shaka (GHL)...');
+            loadingOverlay.querySelector('p').textContent = 'Instalando Polyfills de Shaka...';
+
+            // 1. Instalar Polyfills de Shaka: necesario para compatibilidad HLS/MSE
+            if (shaka && shaka.polyfill) {
+                shaka.polyfill.installAll();
+            } else {
+                console.error('ERROR: Shaka Player no está disponible.');
+                loadingOverlay.querySelector('p').textContent = 'ERROR: Shaka Player no se cargó.';
+                return;
+            }
+
+            // 2. Inicializar el Contexto de Cast Receiver
+            const context = cast.framework.CastReceiverContext.getInstance();
+            const playerManager = context.getPlayerManager();
+
+            // 3. Establecer el listener para controlar el overlay de carga
+            playerManager.addEventListener(cast.framework.events.EventType.PLAYER_STATE_CHANGED, (event) => {
+                console.log('Estado del Reproductor CAF:', event.playerState);
+                
+                // Mostrar el spinner en estados de carga/buffering
+                if (event.playerState === cast.framework.messages.PlayerState.BUFFERING || event.playerState === cast.framework.messages.PlayerState.LOADING) {
+                    loadingOverlay.style.display = 'flex';
+                    loadingOverlay.querySelector('p').textContent = 'Cargando stream...';
+                } 
+                // Ocultar el spinner en reproducción, pausa o inactividad
+                else if (event.playerState === cast.framework.messages.PlayerState.PLAYING || 
+                         event.playerState === cast.framework.messages.PlayerState.PAUSED || 
+                         event.playerState === cast.framework.messages.PlayerState.IDLE) {
+                    loadingOverlay.style.display = 'none';
+                }
+            });
+
+            // 4. Iniciar el Contexto del Receptor
+            context.start({
+                supportedCommands: cast.framework.messages.Command.ALL,
+                statusText: 'Shaka HLS CAF Ready (GHL 4.16.11)',
+                mediaElement: videoElement,
+                // CONFIGURACIÓN CLAVE: CAF utilizará Shaka Player para manejar HLS (M3U8)
+                playbackConfig: {
+                    useShakaForHls: true, 
+                },
+            });
+
+            loadingOverlay.querySelector('p').textContent = 'Esperando contenido...';
+            console.log('Contexto del Receptor CAF iniciado.');
         }
 
-        // Si la request usa contentId y querés convertirlo a contentUrl:
-        if (media.contentId && !media.contentUrl) {
-          media.contentUrl = media.contentId;
-        }
-
-        // Asumir stream HLS
-        media.contentType = 'application/x-mpegurl';
-        // Si los segmentos HLS están en CMAF / fMP4:
-        media.hlsSegmentFormat = cast.framework.messages.HlsSegmentFormat.FMP4;
-        media.hlsVideoSegmentFormat = cast.framework.messages.HlsVideoSegmentFormat.FMP4;
-
-        loadRequestData.media = media;
-        return loadRequestData;
-      }
-    );
-
-    // Opciones de receiver: usar Shaka Player para HLS (por defecto en CAF v3 desde Nov 2025)
-    const options = new cast.framework.CastReceiverOptions();
-    options.useShakaForHls = true;
-    // (Opcional) fijar versión de Shaka — no es necesario salvo que tengas un requisito específico
-    // options.shakaVersion = '4.15.12';
-
-    context.start(options);
-  </script>
+        window.onload = setupReceiver;
+    </script>
 </body>
 </html>
