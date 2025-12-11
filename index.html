@@ -16,6 +16,13 @@
             min-height: 100vh;
             background-color: #f3f4f6;
         }
+
+        google-cast-launcher {
+            display: inline-block;
+            background-color: transparent;
+            border: none;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
@@ -55,12 +62,10 @@
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
 
     <!-- 2. CARGADOR DEL SDK DE SENDER V3 (Fuente oficial de Google Cast - Gstatic) -->
-    <script src="//www.gstatic.com/cv/js/sender/api_js/sdk/loader.js"></script>
+    <script src="https://www.gstatic.com/cv/js/sender/api_js/sdk/loader.js"></script>
 
     <script>
-        // Note: We use Vanilla JavaScript for the actual Cast logic as it's the recommended practice.
-        
-        const RECEIVER_APP_ID = 'AAA48312'; // Custom Receiver App ID
+        const RECEIVER_APP_ID = 'CC1AD845'; // Custom Receiver App ID
         let castContext;
 
         function setupSender() {
@@ -146,4 +151,4 @@
         };
     </script>
 </body>
-              </html>
+</html>
