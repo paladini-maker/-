@@ -1,224 +1,149 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Cast Sender - HLS</title>
-  <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
-  <style>
-    body { background: #111; color: #fff; font-family: system-ui, sans-serif; margin:0; padding:22px; }
-    input, button { padding:10px; font-size:15px; border-radius:6px; border:none; margin:6px 0; }
-    input { width:100%; max-width:700px; color:#000; }
-    #log { margin-top:12px; background:#00000066; padding:8px; border-radius:6px; max-width:700px; white-space:pre-wrap; font-family:monospace; font-size:13px; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chromecast Shaka HLS Web Sender</title>
+    <!-- Incluir Tailwind CSS para estilos modernos y responsivos -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Estilos generales para centrar el contenido */
+        body {
+            font-family: 'Inter', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #f3f4f6;
+        }
+    </style>
 </head>
 <body>
-  <h2>Cast Sender HLS (actualizado)</h2>
-  <input id="streamUrl" placeholder="https://ejemplo.com/stream.m3u8"/>
-  <div>
-    <button id="castBtn">Cast</button>
-    <button id="stopBtn">Stop</button>
-  </div>
-  <div id="log" aria-live="polite"></div>
 
-  <script>
-    const L = (msg, isError = false) => {
-      const el = document.getElementById('log');
-      const prefix = new Date().toISOString() + ' ';
-      el.textContent = prefix + msg + '\\n' + el.textContent;
-      if (isError) console.error(msg); else console.log(msg);
-    };
+    <!-- INTERFAZ DEL SENDER -->
+    <div id="sender-content" class="p-8 max-w-xl w-full bg-white shadow-2xl rounded-xl space-y-6 md:p-10">
+        <h1 class="text-3xl font-bold text-gray-800 text-center">Web Sender (M3U8 + Shaka)</h1>
+        <p class="text-sm text-gray-500 text-center">Ingresa la URL del stream M3U8 y envíala a tu dispositivo Chromecast.</p>
 
-    // Reemplazar por tu APP_ID (o usar DEFAULT_MEDIA_RECEIVER_APP_ID para receptor por defecto)
-    const APP_ID = 'AAA48312';
+        <!-- Botón de Cast (Proporcionado por el SDK) -->
+        <div class="flex justify-center p-4">
+            <google-cast-launcher id="castbutton"></google-cast-launcher>
+        </div>
 
-    window['__onGCastApiAvailable'] = function(isAvailable) {
-      if (!isAvailable) {
-        L('Cast API no disponible', true);
-        return;
-      }
-      L('Cast API disponible');
+        <div class="space-y-4">
+            <label for="m3u8-url" class="block text-sm font-medium text-gray-700">URL del Stream M3U8:</label>
+            <input type="url" id="m3u8-url" value="https://bitdash-a.akamaihd.net/content/sintel/hls/playlist.m3u8"
+                   placeholder="Ej: https://example.com/playlist.m3u8"
+                   class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition duration-150 ease-in-out">
+        </div>
 
-      const context = cast.framework.CastContext.getInstance();
-      context.setOptions({
-        receiverApplicationId: APP_ID,
-        autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
-      });
+        <button id="send-button" disabled
+                class="w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-lg font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 transition duration-150 ease-in-out">
+            <svg id="spinner" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            Enviar a Chromecast
+        </button>
 
-      const castBtn = document.getElementById('castBtn');
-      const stopBtn = document.getElementById('stopBtn');
+        <div id="status-message" class="text-center text-sm mt-4 p-2 rounded-md transition duration-300">
+            Desconectado. Haz clic en el ícono de Cast.
+        </div>
+    </div>
 
-      castBtn.onclick = async () => {
-        const url = document.getElementById('streamUrl').value.trim();
-        if (!url) { L('Ingresa una URL válida', true); return; }
+    <!-- 1. JQUERY (Google Hosted Libraries: 3.7.1) -->
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
 
-        try {
-          L('Solicitando sesión Cast...');
-          const session = await context.requestSession();
-          if (!session) {
-            L('requestSession resolvió null (usuario canceló?)', true);
-            return;
-          }
-          L('Sesión iniciada. Id: ' + session.getSessionId());
+    <!-- 2. CARGADOR DEL SDK DE SENDER V3 (Fuente oficial de Google Cast - Gstatic) -->
+    <script src="//www.gstatic.com/cv/js/sender/api_js/sdk/loader.js"></script>
 
-          const mediaInfo = new chrome.cast.media.MediaInfo(url, 'application/x-mpegURL');
-          const metadata = new chrome.cast.media.GenericMediaMetadata();
-          metadata.title = url.split('/').pop();
-          mediaInfo.metadata = metadata;
+    <script>
+        // Note: We use Vanilla JavaScript for the actual Cast logic as it's the recommended practice.
+        
+        const RECEIVER_APP_ID = 'AAA48312'; // Custom Receiver App ID
+        let castContext;
 
-          const request = new chrome.cast.media.LoadRequest(mediaInfo);
-          request.autoplay = true;
-          request.currentTime = 0;
+        function setupSender() {
+            console.log('Inicializando la aplicación Web Sender...');
+            
+            const sendButton = document.getElementById('send-button');
+            const urlInput = document.getElementById('m3u8-url');
+            const statusMessage = document.getElementById('status-message');
+            const spinner = document.getElementById('spinner');
 
-          L('Cargando media: ' + url);
-          await session.loadMedia(request);
-          L('Media cargada en receptor');
+            // 1. Inicializar el Contexto de Cast v3
+            cast.framework.CastContext.getInstance().setOptions({
+                receiverApplicationId: RECEIVER_APP_ID,
+                autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
+            });
 
-        } catch (err) {
-          const msg = (err && err.message) ? err.message : String(err);
-          if (msg.toLowerCase().includes('cancel')) {
-            L('Sesión cancelada por el usuario', false);
-          } else {
-            L('Error al solicitar sesión / cargar media: ' + msg, true);
-          }
+            castContext = cast.framework.CastContext.getInstance();
+            
+            // 2. Escuchar los cambios de estado de sesión
+            castContext.addEventListener(
+                cast.framework.CastContextEventType.SESSION_STATE_CHANGED,
+                (event) => {
+                    const sessionState = event.sessionState;
+                    const session = castContext.getCurrentSession();
+                    
+                    if (session && (sessionState === cast.framework.SessionState.SESSION_RESUMED || sessionState === cast.framework.SessionState.SESSION_STARTED)) {
+                        // Conectado
+                        statusMessage.innerHTML = `<span class="text-green-700 bg-green-100 p-1 rounded">Conectado a: ${session.getReceiver().friendlyName}</span>`;
+                        sendButton.disabled = false;
+                    } else if (sessionState === cast.framework.SessionState.SESSION_ENDED || sessionState === cast.framework.SessionState.NO_SESSION) {
+                        // Desconectado
+                        statusMessage.innerHTML = `<span class="text-red-700 bg-red-100 p-1 rounded">Desconectado. Haz clic en el ícono de Cast.</span>`;
+                        sendButton.disabled = true;
+                    }
+                }
+            );
+
+            // 3. Manejar el clic en el botón de Enviar
+            sendButton.addEventListener('click', async () => {
+                const mediaUrl = urlInput.value.trim();
+                const currentSession = castContext.getCurrentSession();
+                
+                if (!mediaUrl || !currentSession) {
+                    statusMessage.innerHTML = `<span class="text-red-700 bg-red-100 p-1 rounded">Error: URL no válida o no hay sesión activa.</span>`;
+                    return;
+                }
+
+                spinner.classList.remove('hidden');
+                sendButton.disabled = true;
+
+                try {
+                    // Crear MediaInfo, usando el MIME type 'application/x-mpegURL' para HLS
+                    const mediaInfo = new chrome.cast.media.MediaInfo(mediaUrl, 'application/x-mpegURL'); 
+                    mediaInfo.metadata = new chrome.cast.media.MovieMediaMetadata();
+                    mediaInfo.metadata.title = 'Stream M3U8 (Shaka 4.16.11)';
+                    mediaInfo.metadata.subtitle = 'Enviado desde GHL-Powered Sender';
+
+                    const request = new chrome.cast.media.LoadRequest(mediaInfo);
+                    request.autoplay = true;
+
+                    // Enviar la solicitud de carga al Receiver
+                    await currentSession.loadMedia(request);
+                    
+                    statusMessage.innerHTML = `<span class="text-blue-700 bg-blue-100 p-1 rounded">Contenido enviado exitosamente!</span>`;
+
+                } catch (error) {
+                    console.error('Error al enviar la solicitud de carga:', error);
+                    statusMessage.innerHTML = `<span class="text-red-700 bg-red-100 p-1 rounded">Error de envío: ${error.message}</span>`;
+                } finally {
+                    spinner.classList.add('hidden');
+                    sendButton.disabled = false;
+                }
+            });
         }
-      };
 
-      stopBtn.onclick = async () => {
-        const session = context.getCurrentSession();
-        if (!session) { L('No hay sesión activa', true); return; }
-        await session.endSession(true);
-        L('Sesión finalizada por sender');
-      };
-    };
-  </script>
+        // Esta función es llamada automáticamente por el Cast SDK Loader
+        window['__onGCastApiAvailable'] = function(isAvailable) {
+            if (isAvailable) {
+                setupSender();
+            } else {
+                console.error('El SDK de Cast no está disponible.');
+            }
+        };
+    </script>
 </body>
-</html>
-  // Reintento sencillo: espera hasta 'maxAttempts' veces por session
-  const waitForSession = async (context, maxAttempts = 6, delayMs = 300) => {
-    for (let i = 0; i < maxAttempts; i++) {
-      const s = context.getCurrentSession();
-      if (s) return s;
-      await new Promise(r => setTimeout(r, delayMs));
-    }
-    return null;
-  };
-
-  window['__onGCastApiAvailable'] = function(isAvailable) {
-    if (!isAvailable) {
-      L('Cast API no disponible', true);
-      return;
-    }
-    L('Cast API disponible');
-
-    const context = cast.framework.CastContext.getInstance();
-    context.setOptions({
-      // Si usás Default Media Receiver para pruebas rápidas: 'CC1AD845'
-      receiverApplicationId: APP_ID,
-      autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
-    });
-
-    // Escuchar cambios de estado de sesión: importante para evitar usar session antes de tiempo
-    context.addEventListener(
-      cast.framework.CastContextEventType.SESSION_STATE_CHANGED,
-      async (e) => {
-        L('State: ' + e.sessionState);
-        if (e.sessionState === cast.framework.SessionState.SESSION_STARTED ||
-            e.sessionState === cast.framework.SessionState.SESSION_RESUMED) {
-          // Espera el objeto session de forma robusta
-          const sess = await waitForSession(context, 8, 250);
-          if (!sess) {
-            L('SESSION_STARTED pero getCurrentSession() devolvió null después de reintentos', true);
-            return;
-          }
-          L('Session estabilizada: ' + sess.getSessionId());
-        } else if (e.sessionState === cast.framework.SessionState.SESSION_ENDED) {
-          L('Sesión finalizada');
-        }
-      }
-    );
-
-    const castBtn = document.getElementById('castBtn');
-    const stopBtn = document.getElementById('stopBtn');
-
-    // Intentar iniciar sesión (abre el selector de dispositivos)
-    const startCast = async () => {
-      const url = document.getElementById('streamUrl').value.trim();
-      if (!url) { L('Ingresa una URL válida', true); return; }
-
-      try {
-        L('Solicitando sesión Cast...');
-        const sessionPromise = context.requestSession();
-
-        // Podés mostrar UI mientras el usuario elige dispositivo
-        const session = await sessionPromise;
-        if (!session) {
-          // A veces requestSession resuelve a null por cancel o error en navegadores particulares
-          L('La solicitud de sesión resolvió null', true);
-          return;
-        }
-
-        L('Sesión iniciada (requestSession resolvió). Id: ' + (session.getSessionId ? session.getSessionId() : '[sin getSessionId]'));
-
-        // Ahora llamamos a loadMedia de forma segura usando getCurrentSession()
-        await safeLoadMedia(context, url);
-
-      } catch (err) {
-        // Distinguimos cancel (usuario cerró selector) vs otros errores
-        const msg = (err && err.message) ? err.message : String(err);
-        if (msg.toLowerCase().includes('cancel')) {
-          L('Solicitud de sesión cancelada por el usuario', false);
-        } else {
-          L('Error al solicitar sesión: ' + msg, true);
-        }
-      }
-    };
-
-    // Carga de media usando la session ya estabilizada
-    const safeLoadMedia = async (context, url) => {
-      try {
-        // Espera hasta obtener currentSession (por si SESSION_STARTED llegó pero objeto aún no está listo)
-        const session = await waitForSession(context, 8, 250);
-        if (!session) {
-          L('No se pudo obtener la sesión para cargar media', true);
-          return;
-        }
-
-        const mediaInfo = new chrome.cast.media.MediaInfo(url, 'application/x-mpegURL');
-        const metadata = new chrome.cast.media.GenericMediaMetadata();
-        metadata.title = url.split('/').pop();
-        mediaInfo.metadata = metadata;
-
-        const request = new chrome.cast.media.LoadRequest(mediaInfo);
-        request.autoplay = true;
-        request.currentTime = 0;
-
-        L('Cargando media en receptor: ' + url);
-        await session.loadMedia(request);
-        L('Media cargada correctamente en receptor');
-      } catch (e) {
-        const em = (e && e.message) ? e.message : JSON.stringify(e);
-        L('Error cargando media: ' + em, true);
-      }
-    };
-
-    // Terminar sesión
-    const stopCast = async () => {
-      try {
-        const session = context.getCurrentSession();
-        if (!session) { L('No hay sesión activa', true); return; }
-        await session.endSession(true);
-        L('Sesión finalizada por sender');
-      } catch (e) {
-        L('Error al finalizar sesión: ' + (e && e.message ? e.message : e), true);
-      }
-    };
-
-    castBtn.onclick = startCast;
-    stopBtn.onclick = stopCast;
-  };
-</script>
-</body>
-  </html>
-      receiverApplicationId: '', // <-- usar App ID registrado
-      
+              </html>
